@@ -745,7 +745,7 @@
 
 .u-section-5 .u-text-1 {
   font-size: 1.5rem;
-  margin: 0;
+  margin: 0 80px 0 0;
 }
 
 .u-section-5 .u-btn-1 {
@@ -790,6 +790,10 @@
 
   .u-section-5 .u-layout-cell-2 {
     min-height: 151px;
+  }
+
+  .u-section-5 .u-text-1 {
+    margin-right: 0;
   }
 }
 

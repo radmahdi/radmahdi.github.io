@@ -261,24 +261,25 @@ export function getActionSceneState(progress) {
 export const vlmQuestionText = 'Where did I place the duck?';
 export const vlmAnswerText = 'The duck is placed on the center of the desk.';
 export const vlmQuestionWords = vlmQuestionText.split(' ');
-export const vlmCaptureTimes = [0.28, 0.41, 0.54];
-export const vlmFrameTimes = Array.from({ length: 20 }, (_, i) => lerp(0.28, 0.54, i / 19));
+export const vlmCaptureTimes = [0.25, 0.43, 0.61];
+export const vlmFrameTimes = vlmCaptureTimes;
 function getVlmReplay(p) {
-  return p < 0.41 ? lerp(0.998, 0.946, smoothstep(0.30, 0.41, p))
-    : lerp(0.946, 0.88, smoothstep(0.43, 0.54, p));
+  const [first, second, third] = vlmCaptureTimes;
+  return p < second ? lerp(0.998, 0.946, smoothstep(first + 0.02, second, p))
+    : lerp(0.946, 0.88, smoothstep(second + 0.02, third, p));
 }
 export const vlmFrameSamples = vlmFrameTimes.map(getVlmReplay);
 export const vlmTokenCount = vlmQuestionWords.length + vlmFrameSamples.length * 20;
 export const efficientTokenCount = vlmQuestionWords.length + 20 + 8;
 export const standardTokenBudget = 64000;
 export const efficientTokenBudget = 4500;
-export const tokensPerSquare = 1000;
+export const tokensPerSquare = 2000;
 export const tokenReduction = 1 - efficientTokenBudget / standardTokenBudget;
 
 // Source patches animate into budget blocks; they are not a real model tokenizer.
 export function getTokenBudgetRow(tokenCount, width) {
   const gap = width * 0.80 / (standardTokenBudget / tokensPerSquare - 1);
-  const size = Math.min(8, gap * 0.72);
+  const size = Math.min(12, gap * 0.72);
   return Array.from({ length: Math.ceil(tokenCount / tokensPerSquare) }, (_, index) => ({
     x: width * 0.08 + index * gap,
     size,
@@ -293,11 +294,11 @@ export function getVlmState(progress) {
     progress: p,
     question: clamp((p - 0.02) / 0.14),
     questionTokens: smoothstep(0.18, 0.28, p),
-    replay: lerp(replay, 1, smoothstep(0.60, 0.66, p)),
+    replay: lerp(replay, 1, smoothstep(0.77, 0.81, p)),
     flashes: vlmCaptureTimes.map(time => smoothstep(time, time + 0.012, p) * (1 - smoothstep(time + 0.012, time + 0.05, p))),
-    model: smoothstep(0.64, 0.68, p),
-    processed: smoothstep(0.80, 0.87, p),
-    answer: clamp((p - 0.88) / 0.11),
+    model: smoothstep(0.75, 0.78, p),
+    processed: smoothstep(0.86, 0.90, p),
+    answer: clamp((p - 0.91) / 0.08),
   };
 }
 
@@ -306,10 +307,11 @@ export function getVlmToken(index, progress) {
   const visualIndex = index - vlmQuestionWords.length;
   const frame = text ? null : Math.floor(visualIndex / 20);
   const cell = text ? index : visualIndex % 20;
-  const start = text ? 0.18 + cell * 0.002 : vlmFrameTimes[frame] + 0.012 + cell * 0.001;
-  const collect = smoothstep(start, start + 0.07, progress);
-  const delay = (vlmTokenCount - 1 - index) / (vlmTokenCount - 1) * 0.065;
-  const travel = smoothstep(0.68 + delay, 0.73 + delay, progress);
+  const start = text ? 0.18 + cell * 0.002 : vlmFrameTimes[frame] + 0.012;
+  const collect = text ? smoothstep(start, start + 0.07, progress)
+    : smoothstep(start + 0.04, start + 0.14, progress);
+  const delay = (vlmTokenCount - 1 - index) / (vlmTokenCount - 1) * 0.035;
+  const travel = smoothstep(0.78 + delay, 0.825 + delay, progress);
   return { text, frame, cell, collect, travel, opacity: smoothstep(start, start + 0.012, progress) };
 }
 
@@ -321,7 +323,7 @@ export function getVlmTokenPosition(index, progress, width, height, origin) {
   return {
     ...token,
     x: lerp(startX, width * 0.08 + index * gap, token.collect),
-    y: lerp(startY, height * 0.74, token.collect),
+    y: lerp(startY, height * 0.70, token.collect),
     size: Math.min(6, gap * 0.72),
   };
 }
@@ -415,16 +417,16 @@ export function getEfficientTokenPosition(index, progress, width, height, motion
   const cell = text ? index : motion ? index - 26 : index - 6;
   const start = text ? 0.12 : motion ? 0.39 + cell * 0.035 : 0.26 + cell * 0.001;
   const collect = smoothstep(start, start + 0.08, progress);
-  const gap = width * 0.80 / (vlmTokenCount - 1);
+  const gap = width * 0.80 * (efficientTokenBudget / standardTokenBudget) / (efficientTokenCount - 1);
   const size = Math.min(6, gap * 0.72);
-  const source = text ? [width * 0.08 + index * gap, height * 0.71]
+  const source = text ? [getVlmTokenPosition(index, 1, width, height).x, height * 0.65]
     : motion ? motionOrigin
       : [width * (0.13 + (cell % 5 + 0.5) * 0.148), height * (0.21 + (Math.floor(cell / 5) + 0.5) * 0.09)];
   const delay = (efficientTokenCount - 1 - index) / (efficientTokenCount - 1) * 0.05;
   return {
     text, motion, cell, collect, size,
     x: lerp(source[0], width * 0.08 + index * gap, collect),
-    y: lerp(source[1], height * 0.81, collect),
+    y: lerp(source[1], height * 0.75, collect),
     opacity: smoothstep(start, start + 0.012, progress),
     travel: smoothstep(0.74 + delay, 0.79 + delay, progress),
   };

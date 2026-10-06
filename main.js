@@ -421,7 +421,7 @@ function render() {
     const { vlm } = state;
     const entry = state.efficient?.intro ?? 0;
     vlmUi.style.setProperty('--comparison-entry', entry);
-    standardLabel.hidden = vlm.progress < 0.65;
+    standardLabel.hidden = vlm.model === 0;
     efficientLabel.hidden = !state.efficient || entry === 0;
     efficientLabel.style.opacity = entry;
     efficientInput.hidden = !state.efficient || state.efficient.progress < 0.12 || state.efficient.progress >= 0.85;
@@ -429,7 +429,6 @@ function render() {
     const question = vlmQuestionText.slice(0, Math.floor(vlm.question * vlmQuestionText.length));
     questionLetters.textContent = question;
     vlmQuestion.hidden = question.length === 0;
-    vlmQuestion.style.opacity = 1 - vlm.questionTokens;
     vlmQuestion.classList.toggle('is-typing', vlm.question > 0 && vlm.question < 1);
     vlmModel.hidden = state.vlm.model === 0;
     vlmModel.style.opacity = state.vlm.model;
@@ -508,7 +507,7 @@ function drawVlm(state) {
     if (word) wordOffset += word.length + 1;
     const token = getVlmTokenPosition(index, vlm.progress, width, height, origin);
     const { x, size, opacity, text, frame, cell, collect } = token;
-    const y = token.y - height * 0.03 * entry;
+    const y = token.y - height * 0.05 * entry;
     collected += collect;
     if (opacity === 0 || collect === 1) continue;
     ctx.save();
@@ -534,13 +533,13 @@ function drawVlm(state) {
     ctx.strokeRect(x - tokenWidth / 2, y - tokenHeight / 2, tokenWidth, tokenHeight);
     ctx.restore();
   }
-  drawBudgetRow(standardTokenBudget, collected / vlmTokenCount, height * (0.74 - 0.03 * entry),
+  drawBudgetRow(standardTokenBudget, collected / vlmTokenCount, height * (0.70 - 0.05 * entry),
     index => state.efficient ? 1 : getVlmToken(index, vlm.progress).travel, vlmTokenCount);
   if (state.efficient) drawEfficientTokens(state, capture);
   if (vlm.model > 0) {
-    const modelY = height * lerp(0.83, 0.92, entry);
+    const modelY = height * lerp(0.80, 0.85, entry);
     const modelRight = width / 2 + vlmModel.offsetWidth / 2;
-    stroke([width * 0.92, height * lerp(0.74, 0.81, entry)], [width * 0.92, modelY], vlm.model * 0.4, 0.8);
+    stroke([width * 0.92, height * lerp(0.70, 0.75, entry)], [width * 0.92, modelY], vlm.model * 0.4, 0.8);
     stroke([width * 0.92, modelY], [modelRight, modelY], vlm.model * 0.4, 0.8);
     stroke([modelRight + 4, modelY - 3], [modelRight, modelY], vlm.model * 0.6, 0.8);
     stroke([modelRight + 4, modelY + 3], [modelRight, modelY], vlm.model * 0.6, 0.8);
@@ -578,13 +577,6 @@ function drawTokenFlight(x, y, size, travel, weight = 1) {
   ctx.fillRect(destination - size / 2, y - size / 2, size * weight, size);
 }
 
-function efficientMotionColor(time) {
-  const blue = [68, 149, 255], cyan = [42, 212, 210], green = [82, 224, 150];
-  const start = time < 0.5 ? blue : cyan;
-  const end = time < 0.5 ? cyan : green;
-  return start.map((value, axis) => Math.round(lerp(value, end[axis], time < 0.5 ? time * 2 : (time - 0.5) * 2)));
-}
-
 function drawEfficientTrajectory(state) {
   const { points, origins, tangent, opacity, lineWidth } = getEfficientTrajectory(state, width, height);
   if (points.length < 2 || opacity === 0) return origins;
@@ -598,25 +590,15 @@ function drawEfficientTrajectory(state) {
   ctx.lineWidth = lineWidth + 5;
   ctx.stroke();
   ctx.globalAlpha = opacity * 0.24;
-  ctx.strokeStyle = '#2ad4d2';
-  ctx.shadowColor = '#2ad4d2';
+  ctx.strokeStyle = '#efefeb';
+  ctx.shadowColor = '#efefeb';
   ctx.shadowBlur = 8;
   ctx.lineWidth = lineWidth + 2;
   ctx.stroke();
   ctx.shadowBlur = 0;
   ctx.globalAlpha = opacity;
   ctx.lineWidth = lineWidth;
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1], b = points[i];
-    const gradient = ctx.createLinearGradient(...a.position, ...b.position);
-    gradient.addColorStop(0, `rgb(${efficientMotionColor(a.time).join(',')})`);
-    gradient.addColorStop(1, `rgb(${efficientMotionColor(b.time).join(',')})`);
-    ctx.strokeStyle = gradient;
-    ctx.beginPath();
-    ctx.moveTo(...a.position);
-    ctx.lineTo(...b.position);
-    ctx.stroke();
-  }
+  ctx.stroke();
   const first = points[0].position;
   const head = points.at(-1).position;
   const angle = Math.atan2(tangent[1], tangent[0]);
@@ -624,10 +606,10 @@ function drawEfficientTrajectory(state) {
   ctx.arc(...first, lineWidth + 1.5, 0, Math.PI * 2);
   ctx.fillStyle = '#080909';
   ctx.fill();
-  ctx.strokeStyle = '#4495ff';
+  ctx.strokeStyle = '#efefeb';
   ctx.lineWidth = 1.8;
   ctx.stroke();
-  const headColor = efficientMotionColor(points.at(-1).time);
+  const headColor = [239, 239, 235];
   ctx.beginPath();
   ctx.arc(...head, lineWidth + 0.5, 0, Math.PI * 2);
   ctx.fillStyle = `rgb(${headColor.join(',')})`;
@@ -661,9 +643,7 @@ function drawEfficientTokens(state, capture) {
         image.width * 0.148, image.height * 0.09, x - w / 2, y - h / 2, w, h);
       ctx.globalAlpha = opacity;
     }
-    const color = motion
-      ? efficientMotionColor((cell + 0.5) / 8).map((value, axis) => Math.round(lerp(value, [232, 237, 226][axis], collect)))
-      : [232, 237, 226];
+    const color = [232, 237, 226];
     ctx.fillStyle = `rgba(${color.join(',')},${text ? 0.9 : motion ? 0.85 : 0.4 * collect})`;
     ctx.strokeStyle = `rgba(${color.join(',')},0.8)`;
     ctx.lineWidth = lerp(0.65, size * 0.25, collect);
@@ -672,7 +652,7 @@ function drawEfficientTokens(state, capture) {
     if (motion && collect < 1) stroke([x - w / 3, y + h / 3], [x + w / 3, y - h / 3], 1 - collect, 1);
     ctx.restore();
   }
-  drawBudgetRow(efficientTokenBudget, collected / efficientTokenCount, height * 0.81,
+  drawBudgetRow(efficientTokenBudget, collected / efficientTokenCount, height * 0.75,
     index => getEfficientTokenPosition(index, efficient.progress, width, height, [0, 0]).travel, efficientTokenCount);
 }
 

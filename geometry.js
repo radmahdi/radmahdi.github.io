@@ -70,14 +70,18 @@ function samplePolyline(points, distances, fraction) {
   if (fraction === 1) return [...points.at(-1)];
   const distance = distances.at(-1) * fraction;
   let cursor = 1;
-  while (cursor < points.length - 1 && distances[cursor] <= distance) cursor++;
+  let end = points.length - 1;
+  while (cursor < end) {
+    const middle = Math.floor((cursor + end) / 2);
+    if (distances[middle] <= distance) cursor = middle + 1;
+    else end = middle;
+  }
   const span = distances[cursor] - distances[cursor - 1];
   const t = span === 0 ? 0 : (distance - distances[cursor - 1]) / span;
   return points[cursor - 1].map((v, axis) => lerp(v, points[cursor][axis], t));
 }
 
-function splitLongestPath(paths) {
-  const distances = paths.map(path => pathDistances(path.points));
+function splitLongestPath(paths, distances) {
   const index = distances.reduce((best, lengths, i) => lengths.at(-1) > distances[best].at(-1) ? i : best, 0);
   const path = paths[index];
   const lengths = distances[index];
@@ -86,15 +90,17 @@ function splitLongestPath(paths) {
   paths.splice(index, 1,
     { ...path, points: [...path.points.slice(0, split), midpoint] },
     { ...path, points: [midpoint, ...path.points.slice(split)] });
+  distances.splice(index, 1, pathDistances(paths[index].points), pathDistances(paths[index + 1].points));
 }
 
 export function matchMorphPaths(source, target) {
   if (!source.length || !target.length) throw new RangeError('Morph paths must not be empty.');
   const starts = source.map(path => ({ ...path, points: [...path.points] }));
   const ends = target.map(path => ({ ...path, points: [...path.points] }));
-  [...starts, ...ends].forEach(path => pathDistances(path.points));
-  while (starts.length < ends.length) splitLongestPath(starts);
-  while (ends.length < starts.length) splitLongestPath(ends);
+  const startLengths = starts.map(path => pathDistances(path.points));
+  const endLengths = ends.map(path => pathDistances(path.points));
+  while (starts.length < ends.length) splitLongestPath(starts, startLengths);
+  while (ends.length < starts.length) splitLongestPath(ends, endLengths);
   const centers = paths => paths.map(({ points }) => [0, 1].map(axis =>
     points.reduce((sum, point) => sum + point[axis], 0) / points.length));
   const normalize = points => {
@@ -320,6 +326,24 @@ export function getVlmTokenPosition(index, progress, width, height, origin) {
   };
 }
 
+export function getVisibleFrameIndices(state) {
+  const frames = new Set();
+  for (let index = vlmQuestionWords.length; index < vlmTokenCount; index++) {
+    const token = getVlmToken(index, state.vlm.progress);
+    if (token.opacity > 0 && token.collect < 1) frames.add(token.frame);
+  }
+  if (state.efficient) {
+    for (let index = 0; index < efficientTokenCount; index++) {
+      const token = getEfficientTokenPosition(index, state.efficient.progress, 1, 1, [0, 0]);
+      if (!token.text && !token.motion && token.opacity > 0 && token.collect < 1) {
+        frames.add(vlmFrameSamples.length - 1);
+        break;
+      }
+    }
+  }
+  return [...frames];
+}
+
 export function getVlmSceneState(progress) {
   const p = clamp(progress);
   const action = getActionSceneState(p / 0.82);
@@ -525,12 +549,19 @@ export function getAutoScrollTarget(position, direction, stops) {
     : candidates.findLast(stop => stop.position < position) ?? null;
 }
 
+export function isFreeScroll(distance, viewportHeight) {
+  return distance > clamp(viewportHeight * 0.75, 360, 900);
+}
+
+export function getAutoPlaybackDuration(from, to, compact = false) {
+  return clamp(Math.abs(to - from) * (compact ? 0.3 : 0.4), 120, compact ? 1600 : 2200);
+}
+
 export function getSceneProjection(state, width, height) {
   const scale = Math.min(width * 0.14, height * 0.105) * state.zoom;
   const cx = width / 2;
   const cy = height / 2 - scale * 0.175 + state.room * state.roomOpacity * scale * 1.3 - height * 0.06 * (state.efficient?.intro ?? 0);
-  const project = point => projectPoint(point.map((value, axis) => value - state.cameraTarget[axis]),
-    state.yaw, state.pitch, scale, cx, cy, state.cameraDistance);
+  const project = createProjector(state.yaw, state.pitch, scale, cx, cy, state.cameraDistance, state.cameraTarget);
   return { scale, cx, cy, project };
 }
 
@@ -592,6 +623,12 @@ export function getLampPullHand(state, width, height) {
 
 export function getSceneWires(state, width, height, duck) {
   const { project } = getSceneProjection(state, width, height);
+  const transform = createObjectTransform(state);
+  const projected = new Map();
+  const projectObject = point => {
+    if (!projected.has(point)) projected.set(point, project(transform(point)));
+    return projected.get(point);
+  };
   const wires = [];
   const color = [232, 237, 226];
   for (let i = -5; i <= 5; i++) {
@@ -602,7 +639,7 @@ export function getSceneWires(state, width, height, duck) {
   if (state.lampOpacity > 0) wires.push(...getLampGeometry(state, width, height).wires);
   for (const { a, b, strength } of duck) {
     wires.push({
-      a: project(transformObjectPoint(a, state)), b: project(transformObjectPoint(b, state)),
+      a: projectObject(a), b: projectObject(b),
       alpha: clamp(strength * state.duckOpacity), lineWidth: strength > 0.7 ? 1.1 : 0.75, color, kind: 'duck',
     });
   }
@@ -641,15 +678,23 @@ export function createDeskScene() {
 }
 
 export function transformObjectPoint(point, state) {
-  point = point.map(value => value * state.objectScale);
+  return createObjectTransform(state)(point);
+}
+
+export function createObjectTransform(state) {
   const [yaw, roll] = state.objectRotation;
-  const x = point[0] * Math.cos(yaw) + point[2] * Math.sin(yaw);
-  const z = -point[0] * Math.sin(yaw) + point[2] * Math.cos(yaw);
-  return [
-    x * Math.cos(roll) - point[1] * Math.sin(roll) + state.objectTranslation[0],
-    x * Math.sin(roll) + point[1] * Math.cos(roll) + state.objectTranslation[1],
-    z + state.objectTranslation[2],
-  ];
+  const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw);
+  const cosRoll = Math.cos(roll), sinRoll = Math.sin(roll);
+  return point => {
+    const px = point[0] * state.objectScale, py = point[1] * state.objectScale, pz = point[2] * state.objectScale;
+    const x = px * cosYaw + pz * sinYaw;
+    const z = -px * sinYaw + pz * cosYaw;
+    return [
+      x * cosRoll - py * sinRoll + state.objectTranslation[0],
+      x * sinRoll + py * cosRoll + state.objectTranslation[1],
+      z + state.objectTranslation[2],
+    ];
+  };
 }
 
 export const handBones = [
@@ -682,15 +727,17 @@ export function getHandJoints(state, grasp = 'object') {
     closed.splice(2, 3, [0.85, -0.10, -0.35], [0.35, -0.30, 0.03], [0.03, -0.45, 0.28]);
     closed.splice(6, 3, [0, -0.06, 0.38], [-0.08, -0.26, 0.42], [-0.03, -0.39, 0.28]);
   }
-  return open.map((point, index) => transformObjectPoint(
-    point.map((value, axis) => lerp(value, closed[index][axis], state.grip) + state.handOffset[axis]), state,
+  const transform = createObjectTransform(state);
+  return open.map((point, index) => transform(
+    point.map((value, axis) => lerp(value, closed[index][axis], state.grip) + state.handOffset[axis]),
   ));
 }
 
 export function getHandForearm(state) {
+  const transform = createObjectTransform(state);
   return [
     [2.2, 0.65, -0.53], [3.6, 0.85, -0.53], [3.6, 0.35, 0.0], [2.2, 0.15, 0.0],
-  ].map(point => transformObjectPoint(point.map((value, axis) => value + state.handOffset[axis]), state));
+  ].map(point => transform(point.map((value, axis) => value + state.handOffset[axis])));
 }
 
 export const roomVertices = [
@@ -737,13 +784,21 @@ export function getRecoveryGeometry(progress) {
 }
 
 export function projectPoint(point, yaw, pitch, scale, centerX, centerY, cameraDistance = 9) {
-  const [x, y, z] = point;
-  const rx = x * Math.cos(yaw) + z * Math.sin(yaw);
-  const rz = -x * Math.sin(yaw) + z * Math.cos(yaw);
-  const ry = y * Math.cos(pitch) - rz * Math.sin(pitch);
-  const depth = y * Math.sin(pitch) + rz * Math.cos(pitch);
-  const perspective = cameraDistance / (cameraDistance - depth);
-  return [centerX + rx * scale * perspective, centerY - ry * scale * perspective];
+  return createProjector(yaw, pitch, scale, centerX, centerY, cameraDistance)(point);
+}
+
+export function createProjector(yaw, pitch, scale, centerX, centerY, cameraDistance = 9, target = [0, 0, 0]) {
+  const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw);
+  const cosPitch = Math.cos(pitch), sinPitch = Math.sin(pitch);
+  return point => {
+    const x = point[0] - target[0], y = point[1] - target[1], z = point[2] - target[2];
+    const rx = x * cosYaw + z * sinYaw;
+    const rz = -x * sinYaw + z * cosYaw;
+    const ry = y * cosPitch - rz * sinPitch;
+    const depth = y * sinPitch + rz * cosPitch;
+    const perspective = cameraDistance / (cameraDistance - depth);
+    return [centerX + rx * scale * perspective, centerY - ry * scale * perspective];
+  };
 }
 
 export function fallingEdge(index, progress) {

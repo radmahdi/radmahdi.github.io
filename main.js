@@ -1,5 +1,5 @@
-import { clamp, lerp, boxVertices, boxEdges, getSceneState, getIntroSceneState, getActionSceneState, getRecoveryGeometry, fallingEdge, createRubberDuck, transformObjectPoint, getHandJoints, handBones, roomVertices, roomDetails, getRoomLayout, createDeskScene, getSceneProjection, vlmFrameSamples, vlmTokenCount, vlmQuestionText, vlmAnswerText, vlmQuestionWords, getVlmToken, getVlmTokenPosition, efficientTokenCount, getEfficientTokenPosition, standardTokenBudget, efficientTokenBudget, tokensPerSquare, getTokenBudgetRow } from './geometry.js';
-import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, projectPoint, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getAutoScrollTarget, portraitChapter } from './geometry.js';
+import { clamp, lerp, boxVertices, boxEdges, getSceneState, getIntroSceneState, getActionSceneState, getRecoveryGeometry, fallingEdge, createRubberDuck, getHandJoints, handBones, roomVertices, roomDetails, getRoomLayout, createDeskScene, getSceneProjection, vlmFrameSamples, vlmTokenCount, vlmQuestionText, vlmAnswerText, vlmQuestionWords, getVlmToken, getVlmTokenPosition, efficientTokenCount, getEfficientTokenPosition, standardTokenBudget, efficientTokenBudget, tokensPerSquare, getTokenBudgetRow } from './geometry.js';
+import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, createProjector, createObjectTransform, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getAutoScrollTarget, portraitChapter, getVisibleFrameIndices, isFreeScroll, getAutoPlaybackDuration } from './geometry.js';
 
 const canvas = document.querySelector('#scene');
 const ctx = canvas.getContext('2d');
@@ -32,6 +32,8 @@ const standardLabel = document.querySelector('#standard-token-label');
 const efficientLabel = document.querySelector('#efficient-token-label');
 const efficientInput = document.querySelector('#efficient-input');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const compactLayout = matchMedia('(max-width: 700px)');
+const supportsScrollEnd = 'onscrollend' in window;
 const duck = createRubberDuck();
 const desk = createDeskScene();
 let width = 0;
@@ -54,6 +56,9 @@ let touching = false;
 let scrollDirection = 1;
 let lastScrollY = window.scrollY;
 let automaticScrollPosition = null;
+let gesture = null;
+let nativeScrollEnded = true;
+let layoutSize = '';
 
 function samplePortraitPaths() {
   const paths = [];
@@ -115,12 +120,16 @@ function drawPortraitMorph(progress) {
 }
 
 function layoutIntro() {
+  const viewportHeight = viewport.offsetHeight;
+  const size = `${document.documentElement.clientWidth}:${viewportHeight}:${intro.offsetHeight}:${window.devicePixelRatio}`;
+  // Mobile browser chrome can resize the window without changing the svh story.
+  if (size === layoutSize) return;
+  layoutSize = size;
   const preservePosition = scrollStops.length > 0 && window.scrollY >= scrollStops[0].position
     && window.scrollY <= scrollStops.at(-1).position;
   const time = preservePosition ? getScrollTime(window.scrollY, scrollStops) : 0;
   cancelPlayback();
   introTrack.classList.add('is-animated');
-  const viewportHeight = viewport.offsetHeight;
   story.style.height = `${chapterStops.length * viewportHeight}px`;
   const paperChapters = chapterStops.map((stop, index) => stop.copyChapter === null ? null : index).filter(index => index !== null);
   document.querySelectorAll('.scroll-anchor').forEach((anchor, index) => {
@@ -178,41 +187,52 @@ function cancelPlayback() {
   settleTimer = null;
   userScrolling = false;
   userHasScrolled = false;
+  gesture = null;
   requestRender();
 }
 
-function goToChapter(index, animate = false) {
-  cancelPlayback();
-  const target = scrollStops.find(stop => stop.chapter === index);
+function startPlayback(target, animate = true) {
   const from = getScrollTime(window.scrollY, scrollStops);
   if (animate && !reducedMotion.matches && Math.abs(target.time - from) > 1) {
-    playback = { from, to: target.time, started: performance.now() };
+    playback = { from, to: target.time, started: performance.now(),
+      duration: getAutoPlaybackDuration(from, target.time, compactLayout.matches) };
   } else {
     writeScroll(target.position);
   }
   requestRender();
 }
 
-function beginUserScroll() {
+function goToChapter(index, animate = false) {
+  cancelPlayback();
+  startPlayback(scrollStops.find(stop => stop.chapter === index), animate);
+}
+
+function beginUserScroll(event, fresh = false) {
+  const now = event?.timeStamp ?? performance.now();
+  const previous = !fresh && gesture && (touching || now - gesture.lastInput < 250) ? gesture : null;
   const hasScrolled = (userScrolling && userHasScrolled) || !!playback;
   if (playback) scrollDirection = Math.sign(playback.to - playback.from);
   cancelPlayback();
   userScrolling = true;
   userHasScrolled = hasScrolled;
+  gesture = previous ?? { distance: 0, free: false };
+  gesture.lastInput = now;
 }
 
 function schedulePlayback() {
   clearTimeout(settleTimer);
   settleTimer = null;
-  if (!userScrolling || !userHasScrolled || pointerDown || touching || document.hidden || reducedMotion.matches) return;
+  if (!userScrolling || !userHasScrolled || pointerDown || touching || document.hidden
+    || (supportsScrollEnd && !nativeScrollEnded)) return;
   settleTimer = setTimeout(() => {
     settleTimer = null;
-    const target = getAutoScrollTarget(window.scrollY, scrollDirection, scrollStops);
+    const target = !gesture.free && !reducedMotion.matches
+      ? getAutoScrollTarget(window.scrollY, scrollDirection, scrollStops) : null;
     userScrolling = false;
     userHasScrolled = false;
-    if (target) goToChapter(target.chapter, true);
+    if (target) startPlayback(target);
     else requestRender();
-  }, 160);
+  }, supportsScrollEnd ? 180 : 280);
 }
 
 function scrollToBoundary(end) {
@@ -230,6 +250,9 @@ function handleStoryScroll() {
     if (userScrolling && Math.abs(delta) > 0.1) {
       scrollDirection = Math.sign(delta);
       userHasScrolled = true;
+      gesture.distance += Math.abs(delta);
+      gesture.free ||= isFreeScroll(gesture.distance, viewport.offsetHeight);
+      nativeScrollEnded = false;
       schedulePlayback();
     }
   }
@@ -273,12 +296,12 @@ document.addEventListener('focusin', cancelPlayback);
 
 window.addEventListener('wheel', event => {
   if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
-  if (event.deltaY !== 0) beginUserScroll();
+  if (event.deltaY !== 0) beginUserScroll(event);
 }, { passive: true });
 
-window.addEventListener('pointerdown', () => {
+window.addEventListener('pointerdown', event => {
   pointerDown = true;
-  beginUserScroll();
+  beginUserScroll(event, true);
 }, { passive: true });
 function releasePointer() {
   pointerDown = false;
@@ -286,9 +309,9 @@ function releasePointer() {
 }
 window.addEventListener('pointerup', releasePointer, { passive: true });
 window.addEventListener('pointercancel', releasePointer, { passive: true });
-window.addEventListener('touchstart', () => {
+window.addEventListener('touchstart', event => {
   touching = true;
-  beginUserScroll();
+  beginUserScroll(event, true);
 }, { passive: true });
 window.addEventListener('touchmove', beginUserScroll, { passive: true });
 function releaseTouch(event) {
@@ -306,7 +329,7 @@ window.addEventListener('keydown', event => {
     return;
   }
   if (event.target instanceof Element && event.target.closest('a, button')) return;
-  if (['ArrowDown', 'PageDown', ' ', 'ArrowUp', 'PageUp'].includes(event.key)) beginUserScroll();
+  if (['ArrowDown', 'PageDown', ' ', 'ArrowUp', 'PageUp'].includes(event.key)) beginUserScroll(event);
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
@@ -397,7 +420,7 @@ function drawRoom(state, project) {
 function render(now = performance.now()) {
   framePending = false;
   if (playback) {
-    const duration = Math.abs(playback.to - playback.from);
+    const duration = playback.duration;
     const elapsed = Math.max(0, (playbackPausedAt ?? now) - playback.started);
     const time = lerp(playback.from, playback.to, clamp(elapsed / duration));
     writeScroll(getScrollPosition(time, scrollStops));
@@ -485,17 +508,18 @@ function clearScene() {
 
 function drawVlm(state) {
   const { vlm } = state;
-  if (sampledFrames.length === 0) {
-    sampledFrames = vlmFrameSamples.map(progress => {
-      drawScene(getActionSceneState(progress));
+  // Prepare only visible patches before drawing the live scene, which replaces the capture.
+  for (const index of getVisibleFrameIndices(state)) {
+    if (!sampledFrames[index]) {
+      drawScene(getActionSceneState(vlmFrameSamples[index]));
       const frame = document.createElement('canvas');
       frame.width = Math.ceil(width);
       frame.height = Math.ceil(height);
       const frameContext = frame.getContext('2d');
       if (!frameContext) throw new Error('Unable to create the video frame renderer.');
       frameContext.drawImage(canvas, 0, 0, frame.width, frame.height);
-      return frame;
-    });
+      sampledFrames[index] = frame;
+    }
   }
   drawScene(state);
   const capture = { x: width * 0.13, y: height * 0.27, width: width * 0.74, height: height * 0.36 };
@@ -680,7 +704,7 @@ function drawEfficientTokens(state, capture) {
     ctx.save();
     ctx.globalAlpha = opacity;
     if (!text && !motion && collect < 1) {
-      const image = sampledFrames.at(-1);
+      const image = sampledFrames[vlmFrameSamples.length - 1];
       ctx.globalAlpha *= 1 - collect;
       ctx.drawImage(image, image.width * (0.13 + cell % 5 * 0.148), image.height * (0.27 + Math.floor(cell / 5) * 0.09),
         image.width * 0.148, image.height * 0.09, x - w / 2, y - h / 2, w, h);
@@ -704,15 +728,16 @@ function drawEfficientTokens(state, capture) {
 function drawLampPullHand(state) {
   if (!state.lampPull.visible) return;
   const hand = getLampPullHand(state, width, height);
-  const project = point => projectPoint(point, state.yaw, state.pitch, hand.scale, ...hand.offset, state.cameraDistance);
+  const project = createProjector(state.yaw, state.pitch, hand.scale, ...hand.offset, state.cameraDistance);
   drawHand({ ...hand, opacity: 1 }, project, hand.scale);
 }
 
 function drawScene(state, formation = 1) {
   const { light, collapse, recovery } = state;
   const { scale, cx, cy, project } = getSceneProjection(state, width, height);
-  const projectObject = point => project(transformObjectPoint(point, state));
-  const wirePaths = groupSceneWires(getSceneWires(state, width, height, duck));
+  const transform = createObjectTransform(state);
+  const projectObject = point => project(transform(point));
+  const wirePaths = formation < 1 ? [] : groupSceneWires(getSceneWires(state, width, height, duck));
   const drawWires = kind => {
     if (formation < 1) return;
     for (const path of wirePaths.filter(path => path.kind === kind)) {
@@ -849,6 +874,11 @@ new ResizeObserver(resize).observe(canvas);
 new ResizeObserver(layoutIntro).observe(intro);
 reducedMotion.addEventListener('change', cancelPlayback);
 window.addEventListener('scroll', handleStoryScroll, { passive: true });
+window.addEventListener('scrollend', () => {
+  if (!userScrolling) return;
+  nativeScrollEnded = true;
+  schedulePlayback();
+}, { passive: true });
 window.addEventListener('resize', layoutIntro);
 function restoreLocation(event) {
   cancelPlayback();

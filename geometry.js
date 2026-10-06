@@ -508,10 +508,14 @@ export function getChapterPlayback(fromIndex, toIndex, elapsed, reducedMotion = 
     // Reserve scroll space for reading without moving any chapter boundary.
     elapsed = lerp(fadeOut, duration, (elapsed - fadeEnd) / (duration - fadeEnd));
   }
+  const sceneProgress = sceneDuration ? lerp(from.sceneProgress, to.sceneProgress, smoothstep(sceneStart, sceneStart + sceneDuration, elapsed)) : to.sceneProgress;
+  const copyOpacity = toIndex === chapterStops.length - 1
+    ? smoothstep(0.95, 0.97, sceneProgress)
+    : smoothstep(finish, finish + 250, elapsed);
   return {
     introProgress: introDuration ? lerp(from.introProgress, to.introProgress, smoothstep(introStart, introStart + introDuration, elapsed)) : to.introProgress,
-    sceneProgress: sceneDuration ? lerp(from.sceneProgress, to.sceneProgress, smoothstep(sceneStart, sceneStart + sceneDuration, elapsed)) : to.sceneProgress,
-    copy: { chapter: to.copyChapter, opacity: to.copyChapter === null ? 0 : smoothstep(finish, finish + 250, elapsed) },
+    sceneProgress,
+    copy: { chapter: to.copyChapter, opacity: to.copyChapter === null ? 0 : copyOpacity },
     playing: true,
   };
 }

@@ -491,13 +491,20 @@ export function getChapterPlayback(fromIndex, toIndex, elapsed, reducedMotion = 
       playing: false,
     };
   }
-  if (elapsed < fadeOut) {
-    return {
-      introProgress: from.introProgress,
-      sceneProgress: from.sceneProgress,
-      copy: { chapter: from.copyChapter, opacity: 1 - smoothstep(0, fadeOut, elapsed) },
-      playing: true,
-    };
+  if (fadeOut) {
+    const duration = finish + fadeIn;
+    const readingEnd = duration * 0.30;
+    const fadeEnd = duration * 0.45;
+    if (elapsed < fadeEnd) {
+      return {
+        introProgress: from.introProgress,
+        sceneProgress: from.sceneProgress,
+        copy: { chapter: from.copyChapter, opacity: 1 - smoothstep(readingEnd, fadeEnd, elapsed) },
+        playing: true,
+      };
+    }
+    // Reserve scroll space for reading without moving any chapter boundary.
+    elapsed = lerp(fadeOut, duration, (elapsed - fadeEnd) / (duration - fadeEnd));
   }
   return {
     introProgress: introDuration ? lerp(from.introProgress, to.introProgress, smoothstep(introStart, introStart + introDuration, elapsed)) : to.introProgress,
@@ -540,21 +547,32 @@ export function getScrollState(position, stops) {
   return { ...getChapterPlayback(from.chapter, to.chapter, time - from.time), chapter: to.chapter, time };
 }
 
-export function getAutoScrollTarget(position, direction, stops) {
-  if (direction === 0 || position < stops[0].position || position > stops.at(-1).position) return null;
-  if (stops.some(stop => Math.abs(stop.position - position) < 2 && stop.chapter !== 0 && (direction < 0 || stop.chapter !== 2))) return null;
-  const candidates = stops.filter(stop => stop.chapter !== 0 && (direction < 0 || stop.chapter !== 2));
+export function getChapterScrollBoundary(position, direction, stops) {
+  if (direction === 0) return null;
+  const candidates = stops.filter(stop => stop.chapter !== 0
+    && (direction < 0 || (stop.chapter !== 2 && stop.chapter !== photoChapter)));
   return direction > 0
-    ? candidates.find(stop => stop.position > position) ?? null
-    : candidates.findLast(stop => stop.position < position) ?? null;
+    ? candidates.find(stop => stop.position > position + 1) ?? null
+    : candidates.findLast(stop => stop.position < position - 1) ?? null;
 }
 
 export function isFreeScroll(distance, viewportHeight) {
   return distance > clamp(viewportHeight * 0.75, 360, 900);
 }
 
-export function getAutoPlaybackDuration(from, to, compact = false) {
-  return clamp(Math.abs(to - from) * (compact ? 0.3 : 0.4), 120, compact ? 1600 : 2200);
+export function getManualScroll(position, previousPosition, gesture, stops, viewportHeight) {
+  const delta = position - previousPosition;
+  if (Math.abs(delta) < 0.1) return { position, gesture };
+  const direction = Math.sign(delta);
+  const distance = gesture.distance + Math.abs(delta);
+  const free = gesture.free || isFreeScroll(distance, viewportHeight);
+  const boundary = gesture.direction === direction ? gesture.boundary
+    : getChapterScrollBoundary(previousPosition, direction, stops);
+  const held = !free && boundary !== null && (position - boundary.position) * direction >= 0;
+  return {
+    position: held ? boundary.position : position,
+    gesture: { ...gesture, distance, free, direction, boundary, held },
+  };
 }
 
 export function getSceneProjection(state, width, height) {

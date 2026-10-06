@@ -1,5 +1,5 @@
 import { clamp, lerp, boxVertices, boxEdges, getSceneState, getIntroSceneState, getActionSceneState, getRecoveryGeometry, fallingEdge, createRubberDuck, getHandJoints, handBones, roomVertices, roomDetails, getRoomLayout, createDeskScene, getSceneProjection, vlmFrameSamples, vlmTokenCount, vlmQuestionText, vlmAnswerText, vlmQuestionWords, getVlmToken, getVlmTokenPosition, efficientTokenCount, getEfficientTokenPosition, standardTokenBudget, efficientTokenBudget, tokensPerSquare, getTokenBudgetRow } from './geometry.js';
-import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, createProjector, createObjectTransform, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getAutoScrollTarget, portraitChapter, getVisibleFrameIndices, isFreeScroll, getAutoPlaybackDuration } from './geometry.js';
+import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, createProjector, createObjectTransform, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getVisibleFrameIndices, getManualScroll } from './geometry.js';
 
 const canvas = document.querySelector('#scene');
 const ctx = canvas.getContext('2d');
@@ -32,8 +32,6 @@ const standardLabel = document.querySelector('#standard-token-label');
 const efficientLabel = document.querySelector('#efficient-token-label');
 const efficientInput = document.querySelector('#efficient-input');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const compactLayout = matchMedia('(max-width: 700px)');
-const supportsScrollEnd = 'onscrollend' in window;
 const duck = createRubberDuck();
 const desk = createDeskScene();
 let width = 0;
@@ -46,18 +44,13 @@ let introDistance = 1;
 let portraitBounds = { left: 0, top: 0, width: 0 };
 let morphPairs = null;
 let scrollStops = [];
-let playback = null;
-let playbackPausedAt = null;
 let settleTimer = null;
 let userScrolling = false;
-let userHasScrolled = false;
 let pointerDown = false;
 let touching = false;
-let scrollDirection = 1;
 let lastScrollY = window.scrollY;
-let automaticScrollPosition = null;
+let writtenScrollPosition = null;
 let gesture = null;
-let nativeScrollEnded = true;
 let layoutSize = '';
 
 function samplePortraitPaths() {
@@ -128,7 +121,7 @@ function layoutIntro() {
   const preservePosition = scrollStops.length > 0 && window.scrollY >= scrollStops[0].position
     && window.scrollY <= scrollStops.at(-1).position;
   const time = preservePosition ? getScrollTime(window.scrollY, scrollStops) : 0;
-  cancelPlayback();
+  resetScrollGesture();
   introTrack.classList.add('is-animated');
   story.style.height = `${chapterStops.length * viewportHeight}px`;
   const paperChapters = chapterStops.map((stop, index) => stop.copyChapter === null ? null : index).filter(index => index !== null);
@@ -174,89 +167,64 @@ function renderIntro(p) {
 }
 
 function writeScroll(top) {
-  automaticScrollPosition = top;
+  writtenScrollPosition = top;
   window.scrollTo({ top, behavior: 'instant' });
   lastScrollY = window.scrollY;
   requestRender();
 }
 
-function cancelPlayback() {
-  playback = null;
-  playbackPausedAt = null;
+function resetScrollGesture() {
   clearTimeout(settleTimer);
   settleTimer = null;
   userScrolling = false;
-  userHasScrolled = false;
   gesture = null;
   requestRender();
 }
 
-function startPlayback(target, animate = true) {
-  const from = getScrollTime(window.scrollY, scrollStops);
-  if (animate && !reducedMotion.matches && Math.abs(target.time - from) > 1) {
-    playback = { from, to: target.time, started: performance.now(),
-      duration: getAutoPlaybackDuration(from, target.time, compactLayout.matches) };
-  } else {
-    writeScroll(target.position);
-  }
-  requestRender();
-}
-
-function goToChapter(index, animate = false) {
-  cancelPlayback();
-  startPlayback(scrollStops.find(stop => stop.chapter === index), animate);
+function goToChapter(index) {
+  resetScrollGesture();
+  writeScroll(scrollStops.find(stop => stop.chapter === index).position);
 }
 
 function beginUserScroll(event, fresh = false) {
   const now = event?.timeStamp ?? performance.now();
-  const previous = !fresh && gesture && (touching || now - gesture.lastInput < 250) ? gesture : null;
-  const hasScrolled = (userScrolling && userHasScrolled) || !!playback;
-  if (playback) scrollDirection = Math.sign(playback.to - playback.from);
-  cancelPlayback();
+  const previous = !fresh && gesture && (touching || pointerDown || event?.repeat
+    || now - gesture.lastInput < 250) ? gesture : null;
+  resetScrollGesture();
   userScrolling = true;
-  userHasScrolled = hasScrolled;
-  gesture = previous ?? { distance: 0, free: false };
+  gesture = previous ?? { distance: 0, free: false, direction: 0, boundary: null, held: false };
   gesture.lastInput = now;
+  scheduleScrollEnd();
 }
 
-function schedulePlayback() {
+function scheduleScrollEnd() {
   clearTimeout(settleTimer);
   settleTimer = null;
-  if (!userScrolling || !userHasScrolled || pointerDown || touching || document.hidden
-    || (supportsScrollEnd && !nativeScrollEnded)) return;
+  if (!userScrolling || pointerDown || touching) return;
   settleTimer = setTimeout(() => {
     settleTimer = null;
-    const target = !gesture.free && !reducedMotion.matches
-      ? getAutoScrollTarget(window.scrollY, scrollDirection, scrollStops) : null;
     userScrolling = false;
-    userHasScrolled = false;
-    if (target) startPlayback(target);
-    else requestRender();
-  }, supportsScrollEnd ? 180 : 280);
+    requestRender();
+  }, 280);
 }
 
 function scrollToBoundary(end) {
-  cancelPlayback();
+  resetScrollGesture();
   writeScroll(end ? document.documentElement.scrollHeight : 0);
 }
 
 function handleStoryScroll() {
   const position = window.scrollY;
-  const ownScroll = automaticScrollPosition !== null && Math.abs(position - automaticScrollPosition) < 2;
-  automaticScrollPosition = null;
-  if (!ownScroll) {
-    if (playback) beginUserScroll();
-    const delta = position - lastScrollY;
-    if (userScrolling && Math.abs(delta) > 0.1) {
-      scrollDirection = Math.sign(delta);
-      userHasScrolled = true;
-      gesture.distance += Math.abs(delta);
-      gesture.free ||= isFreeScroll(gesture.distance, viewport.offsetHeight);
-      nativeScrollEnded = false;
-      schedulePlayback();
-    }
+  const ownScroll = writtenScrollPosition !== null && Math.abs(position - writtenScrollPosition) < 2;
+  writtenScrollPosition = null;
+  if (!ownScroll && gesture && Math.abs(position - lastScrollY) > 0.1) {
+    const result = getManualScroll(position, lastScrollY, gesture, scrollStops, viewport.offsetHeight);
+    gesture = result.gesture;
+    userScrolling = true;
+    if (result.position !== position) writeScroll(result.position);
+    scheduleScrollEnd();
   }
-  lastScrollY = position;
+  lastScrollY = window.scrollY;
   requestRender();
 }
 
@@ -264,7 +232,7 @@ function scrollToContact() {
   const contact = document.querySelector('#contact');
   const top = Math.min(introOverflow, Math.max(0,
     contact.getBoundingClientRect().top - intro.getBoundingClientRect().top - 84));
-  cancelPlayback();
+  resetScrollGesture();
   writeScroll(top);
   renderIntro(0);
   contact.focus({ preventScroll: true });
@@ -279,7 +247,8 @@ document.querySelector('a[href="#contact"]').addEventListener('click', event => 
 document.querySelectorAll('[data-jump]').forEach(link => {
   link.addEventListener('click', event => {
     event.preventDefault();
-    goToChapter(portraitChapter, true);
+    resetScrollGesture();
+    writeScroll(scrollStops[0].position);
   });
 });
 chapterButtons.forEach((button, index) => button.addEventListener('click', () => goToChapter(index)));
@@ -292,7 +261,7 @@ document.querySelectorAll('a[href="#top"], .skip-link').forEach(link => {
     document.querySelector(end ? '#story-end' : '.wordmark').focus({ preventScroll: true });
   });
 });
-document.addEventListener('focusin', cancelPlayback);
+document.addEventListener('focusin', resetScrollGesture);
 
 window.addEventListener('wheel', event => {
   if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
@@ -305,7 +274,7 @@ window.addEventListener('pointerdown', event => {
 }, { passive: true });
 function releasePointer() {
   pointerDown = false;
-  schedulePlayback();
+  scheduleScrollEnd();
 }
 window.addEventListener('pointerup', releasePointer, { passive: true });
 window.addEventListener('pointercancel', releasePointer, { passive: true });
@@ -316,7 +285,7 @@ window.addEventListener('touchstart', event => {
 window.addEventListener('touchmove', beginUserScroll, { passive: true });
 function releaseTouch(event) {
   touching = event.touches.length > 0;
-  schedulePlayback();
+  scheduleScrollEnd();
 }
 window.addEventListener('touchend', releaseTouch, { passive: true });
 window.addEventListener('touchcancel', releaseTouch, { passive: true });
@@ -329,19 +298,10 @@ window.addEventListener('keydown', event => {
     return;
   }
   if (event.target instanceof Element && event.target.closest('a, button')) return;
-  if (['ArrowDown', 'PageDown', ' ', 'ArrowUp', 'PageUp'].includes(event.key)) beginUserScroll(event);
+  if (['ArrowDown', 'PageDown', ' ', 'ArrowUp', 'PageUp'].includes(event.key)) beginUserScroll(event, !event.repeat);
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    clearTimeout(settleTimer);
-    settleTimer = null;
-    if (playback) playbackPausedAt = performance.now();
-  } else {
-    if (playback && playbackPausedAt !== null) playback.started += performance.now() - playbackPausedAt;
-    playbackPausedAt = null;
-    schedulePlayback();
-    requestRender();
-  }
+  resetScrollGesture();
 });
 
 function stroke(a, b, alpha = 1, lineWidth = 1, dash = [], color = [232, 237, 226]) {
@@ -417,25 +377,17 @@ function drawRoom(state, project) {
   });
 }
 
-function render(now = performance.now()) {
+function render() {
   framePending = false;
-  if (playback) {
-    const duration = playback.duration;
-    const elapsed = Math.max(0, (playbackPausedAt ?? now) - playback.started);
-    const time = lerp(playback.from, playback.to, clamp(elapsed / duration));
-    writeScroll(getScrollPosition(time, scrollStops));
-    if (elapsed >= duration) playback = null;
-  }
   const timeline = getScrollState(window.scrollY, scrollStops);
-  const playing = !!playback;
   const introState = renderIntro(timeline.introProgress);
-  introTrack.dataset.playing = String(playing);
+  introTrack.dataset.playing = 'false';
   introTrack.dataset.stage = timeline.introProgress === 0 ? 'photo' : timeline.introProgress === 0.65 ? 'portrait'
     : timeline.introProgress === 1 ? 'research' : 'transition';
-  portraitScrollHint.hidden = playing || Math.abs(timeline.introProgress - 0.65) > 0.001;
-  viewport.dataset.playing = String(playing);
-  viewport.setAttribute('aria-busy', String(playing));
-  viewport.dataset.control = playing ? 'automatic' : userScrolling ? 'scroll' : 'idle';
+  portraitScrollHint.hidden = Math.abs(timeline.introProgress - 0.65) > 0.001;
+  viewport.dataset.playing = 'false';
+  viewport.setAttribute('aria-busy', 'false');
+  viewport.dataset.control = gesture?.held ? 'held' : userScrolling ? 'scroll' : 'idle';
   const state = getSceneState(timeline.sceneProgress);
   const chapter = Math.max(0, timeline.chapter);
   const { copy } = timeline;
@@ -443,7 +395,7 @@ function render(now = performance.now()) {
     const active = Number(element.dataset.chapter) === copy.chapter;
     const visible = active && copy.opacity > 0;
     element.classList.toggle('is-active', active);
-    element.inert = !visible || playing;
+    element.inert = !visible;
     element.setAttribute('aria-hidden', String(!visible));
     element.style.opacity = active ? copy.opacity : '';
     element.style.visibility = active && !visible ? 'hidden' : '';
@@ -458,7 +410,7 @@ function render(now = performance.now()) {
   }
   progressBar.style.transform = `scaleX(${timeline.sceneProgress})`;
   progressValue.textContent = String(Math.round(timeline.sceneProgress * 100)).padStart(2, '0');
-  scrollInstruction.textContent = playing ? 'SCROLL TO CONTROL' : 'SCROLL TO CONTINUE';
+  scrollInstruction.textContent = gesture?.held ? 'SCROLL AGAIN TO CONTINUE' : 'SCROLL TO CONTINUE';
   if (actionLabel.textContent !== state.actionLabel) {
     actionLabel.hidden = !state.actionLabel;
     actionLabel.textContent = state.actionLabel;
@@ -496,7 +448,6 @@ function render(now = performance.now()) {
     drawScene(state, introState.morph);
     if (introState.morph > 0 && introState.morph < 1) drawPortraitMorph(introState.morph);
   }
-  if (playback) requestRender();
 }
 
 function clearScene() {
@@ -872,26 +823,21 @@ function resize() {
 
 new ResizeObserver(resize).observe(canvas);
 new ResizeObserver(layoutIntro).observe(intro);
-reducedMotion.addEventListener('change', cancelPlayback);
+reducedMotion.addEventListener('change', resetScrollGesture);
 window.addEventListener('scroll', handleStoryScroll, { passive: true });
-window.addEventListener('scrollend', () => {
-  if (!userScrolling) return;
-  nativeScrollEnded = true;
-  schedulePlayback();
-}, { passive: true });
 window.addEventListener('resize', layoutIntro);
 function restoreLocation(event) {
-  cancelPlayback();
+  resetScrollGesture();
   if (location.hash === '#contact') {
     scrollToContact();
   } else if (location.hash === '#top' || (event.type === 'hashchange' && !location.hash)) {
     writeScroll(0);
   } else if (location.hash === '#research') {
-    goToChapter(1, false);
+    goToChapter(1);
   } else {
     const anchor = document.getElementById(location.hash.slice(1));
     if (anchor?.classList.contains('scroll-anchor')) {
-      goToChapter(Number(anchor.dataset.chapter), false);
+      goToChapter(Number(anchor.dataset.chapter));
     } else if (location.hash === '#story-end') {
       scrollToBoundary(true);
     }

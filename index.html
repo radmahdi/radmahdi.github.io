@@ -38,7 +38,7 @@
             </div>
             <p>Microsoft Spatial AI Lab · Zurich, Switzerland</p>
           </address>
-          <a class="explore-link" href="#research" data-jump="0"><span class="circle-arrow" aria-hidden="true">↓</span> Explore my work <span class="link-note">SCROLL TO DISCOVER</span></a>
+          <a class="explore-link" href="#research" data-jump="0"><span class="circle-arrow" aria-hidden="true"><span class="scroll-arrow">↓</span></span> Explore my work <span class="link-note">SCROLL DOWN</span></a>
         </div>
         <div class="profile-visual">
           <img class="profile-portrait" src="./mahdi-rad.jpg" width="800" height="800" alt="Portrait of Mahdi Rad" fetchpriority="high">
@@ -67,6 +67,7 @@
         </div>
       </section>
       </div>
+      <p id="portrait-scroll-hint" class="portrait-scroll-hint" hidden>SCROLL TO CHAPTER 1 <span aria-hidden="true">↓</span></p>
       <canvas id="portrait-morph" class="portrait-morph" aria-hidden="true" hidden></canvas>
 
       <section class="scroll-story" id="research" aria-label="Interactive research projects">
@@ -86,7 +87,7 @@
           </div>
 
           <div class="story-copy">
-            <article class="chapter continuous-copy is-active" data-chapter="0">
+            <article class="chapter is-active" data-chapter="0">
               <p class="eyebrow"><span class="tiny-line"></span> SELECTED WORK / 01</p>
               <h2>3D Pose Estimation</h2>
               <ol class="paper-list" aria-label="3D pose estimation papers">
@@ -157,17 +158,17 @@
           </div>
 
           <div class="story-bottom">
-            <div class="scroll-hint"><span class="mouse-icon" aria-hidden="true"></span><span>SCROLL TO EXPLORE THE PROJECTS</span></div>
+            <div class="scroll-hint"><span class="mouse-icon" aria-hidden="true"></span><span id="scroll-instruction">SCROLL TO CONTINUE</span></div>
             <nav class="chapter-nav" aria-label="Animation chapters">
-              <button class="is-active" data-progress="0" aria-label="The object" aria-current="step"><span>01</span><span class="step-name">The object</span></button>
-              <button data-progress="0.08684456" aria-label="The estimate"><span>02</span><span class="step-name">The estimate</span></button>
-              <button data-progress="0.21561408" aria-label="The challenge"><span>03</span><span class="step-name">The challenge</span></button>
-              <button data-progress="0.25154976" aria-label="The recovery"><span>04</span><span class="step-name">The recovery</span></button>
-              <button data-progress="0.3648016" aria-label="Hand interaction"><span>05</span><span class="step-name">The hand</span></button>
-              <button data-progress="0.462808" aria-label="Room layout"><span>06</span><span class="step-name">The room</span></button>
-              <button data-progress="0.564898" aria-label="Action recognition"><span>07</span><span class="step-name">Actions</span></button>
-              <button data-progress="0.68475" aria-label="Spatial VLM"><span>08</span><span class="step-name">VLM</span></button>
-              <button data-progress="0.845" aria-label="Efficient VLM"><span>09</span><span class="step-name">Efficient</span></button>
+              <button class="is-active" data-chapter-step="0" aria-label="The object" aria-current="step"><span>01</span><span class="step-name">The object</span></button>
+              <button data-chapter-step="1" aria-label="The estimate"><span>02</span><span class="step-name">The estimate</span></button>
+              <button data-chapter-step="2" aria-label="The challenge"><span>03</span><span class="step-name">The challenge</span></button>
+              <button data-chapter-step="3" aria-label="The recovery"><span>04</span><span class="step-name">The recovery</span></button>
+              <button data-chapter-step="4" aria-label="Hand interaction"><span>05</span><span class="step-name">The hand</span></button>
+              <button data-chapter-step="5" aria-label="Room layout"><span>06</span><span class="step-name">The room</span></button>
+              <button data-chapter-step="6" aria-label="Action recognition"><span>07</span><span class="step-name">Actions</span></button>
+              <button data-chapter-step="7" aria-label="Spatial VLM"><span>08</span><span class="step-name">VLM</span></button>
+              <button data-chapter-step="8" aria-label="Efficient VLM"><span>09</span><span class="step-name">Efficient</span></button>
             </nav>
             <span class="scroll-percentage"><span id="progress-value">00</span> / 100</span>
           </div>

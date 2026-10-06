@@ -182,13 +182,6 @@ export function getPoseSceneState(progress) {
   };
 }
 
-export function getChapterCopyState(state) {
-  return {
-    chapter: state.chapter < 3 ? 0 : state.chapter,
-    opacity: state.chapter < 3 ? state.light : 1,
-  };
-}
-
 export function getSpatialSceneState(progress) {
   const p = clamp(progress);
   const pose = getPoseSceneState(p / 0.55);
@@ -425,6 +418,111 @@ export function getSceneState(progress) {
     vlm: { ...getVlmState(1), processed: efficient.processed, answer: efficient.progress < 0.12 ? 1 : efficient.answer },
     efficient,
   };
+}
+
+const spatialDuration = 0.8 * 0.82 * 0.83;
+export const chapterStops = [
+  { copyChapter: null, sceneProgress: 0, duration: 1800 },
+  { copyChapter: 0, sceneProgress: 0.34 * 0.55 * spatialDuration, duration: 1800 },
+  { copyChapter: null, sceneProgress: 0.755 * 0.55 * spatialDuration, duration: 3600 },
+  { copyChapter: 3, sceneProgress: 0.98 * 0.55 * spatialDuration, duration: 2000 },
+  { copyChapter: 4, sceneProgress: 0.78 * spatialDuration, duration: 2600 },
+  { copyChapter: 5, sceneProgress: 0.997 * spatialDuration, duration: 3000 },
+  { copyChapter: 6, sceneProgress: 0.998 * 0.82 * 0.83, duration: 3600 },
+  { copyChapter: 7, sceneProgress: (0.82 + 0.18 * 0.999) * 0.83, duration: 8000 },
+  { copyChapter: 8, sceneProgress: 1, duration: 7000 },
+];
+
+export const photoChapter = -2;
+export const portraitChapter = -1;
+const openingStops = [
+  { introProgress: 0, sceneProgress: 0, copyChapter: null },
+  { introProgress: 0.65, sceneProgress: 0, copyChapter: null },
+];
+
+function getPlaybackStop(index) {
+  return index < 0 ? openingStops[index - photoChapter] : { ...chapterStops[index], introProgress: 1 };
+}
+
+function getPlaybackTiming(fromIndex, toIndex) {
+  const from = getPlaybackStop(fromIndex), to = getPlaybackStop(toIndex);
+  const introDuration = from.introProgress === to.introProgress ? 0
+    : Math.min(fromIndex, toIndex) === photoChapter ? 2200 : 2400;
+  const sceneDuration = from.sceneProgress === to.sceneProgress ? 0 : chapterStops[Math.max(fromIndex, toIndex)].duration;
+  const fadeOut = from.copyChapter === null ? 0 : 180;
+  const finish = fadeOut + introDuration + sceneDuration;
+  const fadeIn = to.copyChapter === null ? 0 : 250;
+  const introStart = fadeOut + (toIndex < fromIndex ? sceneDuration : 0);
+  const sceneStart = fadeOut + (toIndex > fromIndex ? introDuration : 0);
+  return { from, to, introDuration, sceneDuration, fadeOut, finish, fadeIn, introStart, sceneStart };
+}
+
+export function getChapterPlayback(fromIndex, toIndex, elapsed, reducedMotion = false) {
+  const { from, to, introDuration, sceneDuration, fadeOut, finish, fadeIn, introStart, sceneStart } = getPlaybackTiming(fromIndex, toIndex);
+  if (reducedMotion || fromIndex === toIndex || elapsed >= finish + fadeIn) {
+    return {
+      introProgress: to.introProgress,
+      sceneProgress: to.sceneProgress,
+      copy: { chapter: to.copyChapter, opacity: to.copyChapter === null ? 0 : 1 },
+      playing: false,
+    };
+  }
+  if (elapsed < fadeOut) {
+    return {
+      introProgress: from.introProgress,
+      sceneProgress: from.sceneProgress,
+      copy: { chapter: from.copyChapter, opacity: 1 - smoothstep(0, fadeOut, elapsed) },
+      playing: true,
+    };
+  }
+  return {
+    introProgress: introDuration ? lerp(from.introProgress, to.introProgress, smoothstep(introStart, introStart + introDuration, elapsed)) : to.introProgress,
+    sceneProgress: sceneDuration ? lerp(from.sceneProgress, to.sceneProgress, smoothstep(sceneStart, sceneStart + sceneDuration, elapsed)) : to.sceneProgress,
+    copy: { chapter: to.copyChapter, opacity: to.copyChapter === null ? 0 : smoothstep(finish, finish + 250, elapsed) },
+    playing: true,
+  };
+}
+
+export function getScrollStops({ introOverflow, introDistance, storyTop, viewportHeight }) {
+  const stops = [
+    { chapter: photoChapter, position: introOverflow, time: 0 },
+    { chapter: portraitChapter, position: introOverflow + introDistance * 0.65, time: 0 },
+    ...chapterStops.map((stop, chapter) => ({ chapter, position: storyTop + chapter * viewportHeight, time: 0 })),
+  ];
+  for (let index = 1; index < stops.length; index++) {
+    const timing = getPlaybackTiming(stops[index - 1].chapter, stops[index].chapter);
+    stops[index].time = stops[index - 1].time + timing.finish + timing.fadeIn;
+  }
+  return stops;
+}
+
+function interpolateStops(value, stops, source, target) {
+  if (value <= stops[0][source]) return stops[0][target];
+  const index = stops.findIndex(stop => stop[source] >= value);
+  if (index === -1) return stops.at(-1)[target];
+  const from = stops[index - 1], to = stops[index];
+  return lerp(from[target], to[target], (value - from[source]) / (to[source] - from[source]));
+}
+
+export const getScrollTime = (position, stops) => interpolateStops(position, stops, 'position', 'time');
+export const getScrollPosition = (time, stops) => interpolateStops(time, stops, 'time', 'position');
+
+export function getScrollState(position, stops) {
+  const nearby = stops.find(stop => Math.abs(stop.position - position) < 1);
+  const time = nearby ? nearby.time : getScrollTime(position, stops);
+  const index = stops.findIndex(stop => stop.time >= time);
+  const to = stops[index];
+  const from = stops[Math.max(0, index - 1)];
+  return { ...getChapterPlayback(from.chapter, to.chapter, time - from.time), chapter: to.chapter, time };
+}
+
+export function getAutoScrollTarget(position, direction, stops) {
+  if (direction === 0 || position < stops[0].position || position > stops.at(-1).position) return null;
+  if (stops.some(stop => Math.abs(stop.position - position) < 2 && stop.chapter !== 0 && (direction < 0 || stop.chapter !== 2))) return null;
+  const candidates = stops.filter(stop => stop.chapter !== 0 && (direction < 0 || stop.chapter !== 2));
+  return direction > 0
+    ? candidates.find(stop => stop.position > position) ?? null
+    : candidates.findLast(stop => stop.position < position) ?? null;
 }
 
 export function getSceneProjection(state, width, height) {

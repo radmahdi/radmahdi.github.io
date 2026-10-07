@@ -451,7 +451,7 @@ const spatialDuration = 0.8 * 0.82 * 0.83;
 export const chapterStops = [
   { copyChapter: null, sceneProgress: 0, duration: 1800 },
   { copyChapter: 0, sceneProgress: 0.34 * 0.55 * spatialDuration, duration: 1800 },
-  { copyChapter: null, sceneProgress: 0.755 * 0.55 * spatialDuration, duration: 3600 },
+  { copyChapter: null, sceneProgress: 0.755 * 0.55 * spatialDuration, duration: 3600, scrollViewports: 1.75 },
   { copyChapter: 3, sceneProgress: 0.98 * 0.55 * spatialDuration, duration: 2000 },
   { copyChapter: 4, sceneProgress: 0.78 * spatialDuration, duration: 2600 },
   { copyChapter: 5, sceneProgress: 0.997 * spatialDuration, duration: 3000 },
@@ -509,7 +509,16 @@ export function getChapterPlayback(fromIndex, toIndex, elapsed, reducedMotion = 
     // Reserve scroll space for reading without moving any chapter boundary.
     elapsed = lerp(fadeOut, duration, (elapsed - fadeEnd) / (duration - fadeEnd));
   }
-  const sceneProgress = sceneDuration ? lerp(from.sceneProgress, to.sceneProgress, smoothstep(sceneStart, sceneStart + sceneDuration, elapsed)) : to.sceneProgress;
+  const sceneAmount = smoothstep(sceneStart, sceneStart + sceneDuration, elapsed);
+  let sceneProgress = sceneDuration ? lerp(from.sceneProgress, to.sceneProgress, sceneAmount) : to.sceneProgress;
+  if ((fromIndex === 1 && toIndex === 2) || (fromIndex === 2 && toIndex === 1)) {
+    const amount = toIndex === 2 ? sceneAmount : 1 - sceneAmount;
+    // Give the cord pull its own longer interval rather than rushing through it.
+    const pose = amount < 0.2 ? lerp(0.34, 0.46, smoothstep(0, 0.2, amount))
+      : amount < 0.65 ? lerp(0.46, 0.54, smoothstep(0.2, 0.65, amount))
+        : lerp(0.54, 0.755, smoothstep(0.65, 1, amount));
+    sceneProgress = pose * 0.55 * spatialDuration;
+  }
   const copyOpacity = toIndex === chapterStops.length - 1
     ? smoothstep(0.95, 0.97, sceneProgress)
     : smoothstep(finish, finish + 250, elapsed);

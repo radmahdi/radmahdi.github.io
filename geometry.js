@@ -549,6 +549,32 @@ function interpolateStops(value, stops, source, target) {
 export const getScrollTime = (position, stops) => interpolateStops(position, stops, 'position', 'time');
 export const getScrollPosition = (time, stops) => interpolateStops(time, stops, 'time', 'position');
 
+const exploreTour = [
+  { chapter: 1, end: 7500 },
+  { chapter: 3, end: 12750 },
+  { chapter: 4, end: 17250 },
+  { chapter: 5, end: 21750 },
+  { chapter: 6, end: 27000 },
+  { chapter: 7, end: 36000 },
+  { chapter: 8, end: 45000 },
+];
+
+export function getExploreScroll(start, stops, elapsed) {
+  let from = start;
+  let began = 0;
+  for (const leg of exploreTour) {
+    const to = stops.find(stop => stop.chapter === leg.chapter).position;
+    if (elapsed < leg.end) {
+      // Leave each completed work visible before moving to the next one.
+      const amount = smoothstep(began, leg.end - 1050, elapsed);
+      return { position: lerp(from, to, amount), complete: false };
+    }
+    from = to;
+    began = leg.end;
+  }
+  return { position: from, complete: true };
+}
+
 export function getScrollState(position, stops) {
   const nearby = stops.find(stop => Math.abs(stop.position - position) < 1);
   const time = nearby ? nearby.time : getScrollTime(position, stops);

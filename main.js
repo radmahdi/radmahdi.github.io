@@ -1,5 +1,5 @@
 import { clamp, lerp, boxVertices, boxEdges, getSceneState, getIntroSceneState, getActionSceneState, getRecoveryGeometry, fallingEdge, createRubberDuck, getHandJoints, handBones, roomVertices, roomDetails, getRoomLayout, createDeskScene, getSceneProjection, vlmFrameSamples, vlmTokenCount, vlmQuestionText, vlmAnswerText, vlmQuestionWords, getVlmToken, getVlmTokenPosition, efficientTokenCount, getEfficientTokenPosition, standardTokenBudget, efficientTokenBudget, tokensPerSquare, getTokenBudgetRow } from './geometry.js';
-import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, createProjector, createObjectTransform, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getVisibleFrameIndices, getManualScroll } from './geometry.js';
+import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, createProjector, createObjectTransform, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getVisibleFrameIndices, getManualScroll, getExploreScroll } from './geometry.js';
 
 const canvas = document.querySelector('#scene');
 const ctx = canvas.getContext('2d');
@@ -20,6 +20,7 @@ const chapterButtons = [...document.querySelectorAll('[data-chapter-step]')];
 const progressBar = document.querySelector('#progress-bar');
 const progressValue = document.querySelector('#progress-value');
 const scrollInstruction = document.querySelector('#scroll-instruction');
+const stopTour = document.querySelector('#stop-tour');
 const actionLabel = document.querySelector('#action-label');
 const vlmUi = document.querySelector('#vlm-ui');
 const vlmQuestion = document.querySelector('#vlm-question');
@@ -52,6 +53,7 @@ let lastScrollY = window.scrollY;
 let writtenScrollPosition = null;
 let gesture = null;
 let layoutSize = '';
+let exploreScroll = null;
 
 function samplePortraitPaths() {
   const paths = [];
@@ -174,6 +176,7 @@ function writeScroll(top) {
 }
 
 function resetScrollGesture() {
+  exploreScroll = null;
   clearTimeout(settleTimer);
   settleTimer = null;
   userScrolling = false;
@@ -184,6 +187,17 @@ function resetScrollGesture() {
 function goToChapter(index) {
   resetScrollGesture();
   writeScroll(scrollStops.find(stop => stop.chapter === index).position);
+}
+
+function exploreWork() {
+  resetScrollGesture();
+  const end = scrollStops.find(stop => stop.chapter === 1).position;
+  if (reducedMotion.matches || window.scrollY >= end) {
+    writeScroll(end);
+    return;
+  }
+  exploreScroll = { start: window.scrollY, startedAt: performance.now() };
+  requestRender();
 }
 
 function beginUserScroll(event, fresh = false) {
@@ -217,6 +231,7 @@ function handleStoryScroll() {
   const position = window.scrollY;
   const ownScroll = writtenScrollPosition !== null && Math.abs(position - writtenScrollPosition) < 2;
   writtenScrollPosition = null;
+  if (!ownScroll && exploreScroll && Math.abs(position - lastScrollY) > 2) resetScrollGesture();
   if (!ownScroll && gesture && Math.abs(position - lastScrollY) > 0.1) {
     const result = getManualScroll(position, lastScrollY, gesture, scrollStops, viewport.offsetHeight);
     gesture = result.gesture;
@@ -247,8 +262,8 @@ document.querySelector('a[href="#contact"]').addEventListener('click', event => 
 document.querySelectorAll('[data-jump]').forEach(link => {
   link.addEventListener('click', event => {
     event.preventDefault();
-    resetScrollGesture();
-    writeScroll(scrollStops[0].position);
+    if (link.classList.contains('explore-link')) exploreWork();
+    else goToChapter(1);
   });
 });
 chapterButtons.forEach((button, index) => button.addEventListener('click', () => goToChapter(index)));
@@ -262,6 +277,7 @@ document.querySelectorAll('a[href="#top"], .skip-link').forEach(link => {
   });
 });
 document.addEventListener('focusin', resetScrollGesture);
+stopTour.addEventListener('click', resetScrollGesture);
 
 window.addEventListener('wheel', event => {
   if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
@@ -290,6 +306,10 @@ function releaseTouch(event) {
 window.addEventListener('touchend', releaseTouch, { passive: true });
 window.addEventListener('touchcancel', releaseTouch, { passive: true });
 window.addEventListener('keydown', event => {
+  if (['Escape', 'Tab', 'Home', 'End', 'ArrowDown', 'PageDown', ' ', 'ArrowUp', 'PageUp'].includes(event.key)) {
+    exploreScroll = null;
+    requestRender();
+  }
   if (event.ctrlKey || event.metaKey || event.altKey
     || (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]'))) return;
   if (['Home', 'End'].includes(event.key)) {
@@ -377,17 +397,23 @@ function drawRoom(state, project) {
   });
 }
 
-function render() {
+function render(now) {
   framePending = false;
+  if (exploreScroll) {
+    const step = getExploreScroll(exploreScroll.start, scrollStops, now - exploreScroll.startedAt);
+    if (step.complete) exploreScroll = null;
+    writeScroll(step.position);
+  }
   const timeline = getScrollState(window.scrollY, scrollStops);
+  stopTour.hidden = exploreScroll === null;
   const introState = renderIntro(timeline.introProgress);
-  introTrack.dataset.playing = 'false';
+  introTrack.dataset.playing = String(exploreScroll !== null);
   introTrack.dataset.stage = timeline.introProgress === 0 ? 'photo' : timeline.introProgress === 0.65 ? 'portrait'
     : timeline.introProgress === 1 ? 'research' : 'transition';
   portraitScrollHint.hidden = Math.abs(timeline.introProgress - 0.65) > 0.001;
-  viewport.dataset.playing = 'false';
+  viewport.dataset.playing = String(exploreScroll !== null);
   viewport.setAttribute('aria-busy', 'false');
-  viewport.dataset.control = gesture?.held ? 'held' : userScrolling ? 'scroll' : 'idle';
+  viewport.dataset.control = exploreScroll ? 'explore' : gesture?.held ? 'held' : userScrolling ? 'scroll' : 'idle';
   const state = getSceneState(timeline.sceneProgress);
   const chapter = Math.max(0, timeline.chapter);
   const { copy } = timeline;

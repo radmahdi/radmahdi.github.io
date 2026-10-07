@@ -123,18 +123,18 @@ function layoutIntro() {
   const time = preservePosition ? getScrollTime(window.scrollY, scrollStops) : 0;
   resetScrollGesture();
   introTrack.classList.add('is-animated');
-  story.style.height = `${chapterStops.length * viewportHeight}px`;
-  const paperChapters = chapterStops.map((stop, index) => stop.copyChapter === null ? null : index).filter(index => index !== null);
-  document.querySelectorAll('.scroll-anchor').forEach((anchor, index) => {
-    anchor.style.top = `${paperChapters[index] * viewportHeight}px`;
-    anchor.dataset.chapter = paperChapters[index];
-  });
   introOverflow = Math.max(0, intro.offsetHeight - viewportHeight);
   introDistance = viewportHeight * 1.5;
   introTrack.style.height = `${intro.offsetHeight + introDistance}px`;
   intro.style.top = `${-introOverflow}px`;
   story.style.marginTop = `${-viewportHeight}px`;
   scrollStops = getScrollStops({ introOverflow, introDistance, storyTop: story.offsetTop, viewportHeight });
+  story.style.height = `${scrollStops.at(-1).position - story.offsetTop + viewportHeight}px`;
+  const paperStops = scrollStops.filter(stop => stop.chapter >= 0 && chapterStops[stop.chapter].copyChapter !== null);
+  document.querySelectorAll('.scroll-anchor').forEach((anchor, index) => {
+    anchor.style.top = `${paperStops[index].position - story.offsetTop}px`;
+    anchor.dataset.chapter = paperStops[index].chapter;
+  });
   const picture = portrait.getBoundingClientRect();
   const section = intro.getBoundingClientRect();
   portraitBounds = { left: picture.left, top: picture.top - section.top - introOverflow, width: picture.width };

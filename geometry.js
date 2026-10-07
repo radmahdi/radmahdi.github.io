@@ -261,12 +261,12 @@ export function getActionSceneState(progress) {
 export const vlmQuestionText = 'Where did I place the duck?';
 export const vlmAnswerText = 'The duck is placed on the center of the desk.';
 export const vlmQuestionWords = vlmQuestionText.split(' ');
-export const vlmCaptureTimes = [0.25, 0.43, 0.61];
+export const vlmCaptureTimes = [0.18, 0.42, 0.66];
 export const vlmFrameTimes = vlmCaptureTimes;
 function getVlmReplay(p) {
   const [first, second, third] = vlmCaptureTimes;
-  return p < second ? lerp(0.998, 0.946, smoothstep(first + 0.02, second, p))
-    : lerp(0.946, 0.88, smoothstep(second + 0.02, third, p));
+  return p < second ? lerp(0.998, 0.946, smoothstep(first + 0.212, second, p))
+    : lerp(0.946, 0.88, smoothstep(second + 0.212, third, p));
 }
 export const vlmFrameSamples = vlmFrameTimes.map(getVlmReplay);
 export const vlmTokenCount = vlmQuestionWords.length + vlmFrameSamples.length * 20;
@@ -294,11 +294,11 @@ export function getVlmState(progress) {
     progress: p,
     question: clamp((p - 0.02) / 0.14),
     questionTokens: smoothstep(0.18, 0.28, p),
-    replay: lerp(replay, 1, smoothstep(0.77, 0.81, p)),
+    replay: lerp(replay, 1, smoothstep(0.88, 0.94, p)),
     flashes: vlmCaptureTimes.map(time => smoothstep(time, time + 0.012, p) * (1 - smoothstep(time + 0.012, time + 0.05, p))),
-    model: smoothstep(0.75, 0.78, p),
-    processed: smoothstep(0.86, 0.90, p),
-    answer: clamp((p - 0.91) / 0.08),
+    model: smoothstep(0.85, 0.88, p),
+    processed: smoothstep(0.94, 0.96, p),
+    answer: clamp((p - 0.96) / (0.995 - 0.96)),
   };
 }
 
@@ -309,9 +309,9 @@ export function getVlmToken(index, progress) {
   const cell = text ? index : visualIndex % 20;
   const start = text ? 0.18 + cell * 0.002 : vlmFrameTimes[frame] + 0.012;
   const collect = text ? smoothstep(start, start + 0.07, progress)
-    : smoothstep(start + 0.04, start + 0.14, progress);
-  const delay = (vlmTokenCount - 1 - index) / (vlmTokenCount - 1) * 0.035;
-  const travel = smoothstep(0.78 + delay, 0.825 + delay, progress);
+    : smoothstep(start + 0.07, start + 0.20, progress);
+  const delay = (vlmTokenCount - 1 - index) / (vlmTokenCount - 1) * 0.02;
+  const travel = smoothstep(0.88 + delay, 0.919 + delay, progress);
   return { text, frame, cell, collect, travel, opacity: smoothstep(start, start + 0.012, progress) };
 }
 
@@ -402,12 +402,12 @@ export function getEfficientState(progress) {
   return {
     progress: p,
     intro: smoothstep(0, 0.12, p),
-    replay: p < 0.34 ? lerp(1, 0.88, smoothstep(0.10, 0.24, p))
-      : lerp(0.88, 1, smoothstep(0.34, 0.68, p)),
+    replay: p < 0.54 ? lerp(1, 0.88, smoothstep(0.10, 0.24, p))
+      : lerp(0.88, 1, smoothstep(0.54, 0.78, p)),
     flash: smoothstep(0.24, 0.252, p) * (1 - smoothstep(0.252, 0.29, p)),
-    motion: Array.from({ length: 8 }, (_, i) => smoothstep(0.34 + i * 0.035, 0.375 + i * 0.035, p)),
-    processed: smoothstep(0.85, 0.91, p),
-    answer: clamp((p - 0.92) / (0.99 - 0.92)),
+    motion: Array.from({ length: 8 }, (_, i) => smoothstep(0.54 + i * 0.03, 0.57 + i * 0.03, p)),
+    processed: smoothstep(0.94, 0.96, p),
+    answer: clamp((p - 0.965) / (0.999 - 0.965)),
   };
 }
 
@@ -415,20 +415,21 @@ export function getEfficientTokenPosition(index, progress, width, height, motion
   const text = index < 6;
   const motion = index >= 26;
   const cell = text ? index : motion ? index - 26 : index - 6;
-  const start = text ? 0.12 : motion ? 0.39 + cell * 0.035 : 0.26 + cell * 0.001;
-  const collect = smoothstep(start, start + 0.08, progress);
+  const start = text ? 0.12 : motion ? 0.59 + cell * 0.025 : 0.26;
+  const collect = text || motion ? smoothstep(start, start + 0.08, progress)
+    : smoothstep(0.34, 0.54, progress);
   const gap = width * 0.80 * (efficientTokenBudget / standardTokenBudget) / (efficientTokenCount - 1);
   const size = Math.min(6, gap * 0.72);
   const source = text ? [getVlmTokenPosition(index, 1, width, height).x, height * 0.65]
     : motion ? motionOrigin
       : [width * (0.13 + (cell % 5 + 0.5) * 0.148), height * (0.21 + (Math.floor(cell / 5) + 0.5) * 0.09)];
-  const delay = (efficientTokenCount - 1 - index) / (efficientTokenCount - 1) * 0.05;
+  const delay = (efficientTokenCount - 1 - index) / (efficientTokenCount - 1) * 0.035;
   return {
     text, motion, cell, collect, size,
     x: lerp(source[0], width * 0.08 + index * gap, collect),
     y: lerp(source[1], height * 0.75, collect),
     opacity: smoothstep(start, start + 0.012, progress),
-    travel: smoothstep(0.74 + delay, 0.79 + delay, progress),
+    travel: smoothstep(0.86 + delay, 0.90 + delay, progress),
   };
 }
 
@@ -455,8 +456,8 @@ export const chapterStops = [
   { copyChapter: 4, sceneProgress: 0.78 * spatialDuration, duration: 2600 },
   { copyChapter: 5, sceneProgress: 0.997 * spatialDuration, duration: 3000 },
   { copyChapter: 6, sceneProgress: 0.998 * 0.82 * 0.83, duration: 3600 },
-  { copyChapter: 7, sceneProgress: (0.82 + 0.18 * 0.999) * 0.83, duration: 8000 },
-  { copyChapter: 8, sceneProgress: 1, duration: 7000 },
+  { copyChapter: 7, sceneProgress: (0.82 + 0.18 * 0.999) * 0.83, duration: 8000, scrollViewports: 2.5 },
+  { copyChapter: 8, sceneProgress: 1, duration: 7000, scrollViewports: 2.5 },
 ];
 
 export const photoChapter = -2;
@@ -521,10 +522,14 @@ export function getChapterPlayback(fromIndex, toIndex, elapsed, reducedMotion = 
 }
 
 export function getScrollStops({ introOverflow, introDistance, storyTop, viewportHeight }) {
+  let position = storyTop;
   const stops = [
     { chapter: photoChapter, position: introOverflow, time: 0 },
     { chapter: portraitChapter, position: introOverflow + introDistance * 0.65, time: 0 },
-    ...chapterStops.map((stop, chapter) => ({ chapter, position: storyTop + chapter * viewportHeight, time: 0 })),
+    ...chapterStops.map((stop, chapter) => {
+      if (chapter > 0) position += (stop.scrollViewports ?? 1) * viewportHeight;
+      return { chapter, position, time: 0 };
+    }),
   ];
   for (let index = 1; index < stops.length; index++) {
     const timing = getPlaybackTiming(stops[index - 1].chapter, stops[index].chapter);

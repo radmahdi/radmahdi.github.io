@@ -549,6 +549,12 @@ function interpolateStops(value, stops, source, target) {
 export const getScrollTime = (position, stops) => interpolateStops(position, stops, 'position', 'time');
 export const getScrollPosition = (time, stops) => interpolateStops(time, stops, 'time', 'position');
 
+export function getResizedScrollPosition(position, previousStops, nextStops) {
+  const previousIntro = previousStops[0].position;
+  if (position < previousIntro) return position / previousIntro * nextStops[0].position;
+  return getScrollPosition(getScrollTime(position, previousStops), nextStops);
+}
+
 const exploreTour = [
   { chapter: 1, end: 7500 },
   { chapter: 3, end: 12750 },

@@ -1,5 +1,5 @@
 import { clamp, lerp, boxVertices, boxEdges, getSceneState, getIntroSceneState, getActionSceneState, getRecoveryGeometry, fallingEdge, createRubberDuck, getHandJoints, handBones, roomVertices, roomDetails, getRoomLayout, createDeskScene, getSceneProjection, vlmFrameSamples, vlmTokenCount, vlmQuestionText, vlmAnswerText, vlmQuestionWords, getVlmToken, getVlmTokenPosition, efficientTokenCount, getEfficientTokenPosition, standardTokenBudget, efficientTokenBudget, tokensPerSquare, getTokenBudgetRow } from './geometry.js';
-import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, createProjector, createObjectTransform, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getVisibleFrameIndices, getManualScroll, getExploreScroll } from './geometry.js';
+import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, createProjector, createObjectTransform, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getVisibleFrameIndices, getManualScroll, getExploreScroll, getResizedScrollPosition } from './geometry.js';
 
 const canvas = document.querySelector('#scene');
 const ctx = canvas.getContext('2d');
@@ -123,6 +123,8 @@ function layoutIntro() {
   const preservePosition = scrollStops.length > 0 && window.scrollY >= scrollStops[0].position
     && window.scrollY <= scrollStops.at(-1).position;
   const time = preservePosition ? getScrollTime(window.scrollY, scrollStops) : 0;
+  const tour = exploreScroll;
+  const previousStops = scrollStops;
   resetScrollGesture();
   introTrack.classList.add('is-animated');
   introOverflow = Math.max(0, intro.offsetHeight - viewportHeight);
@@ -131,6 +133,9 @@ function layoutIntro() {
   intro.style.top = `${-introOverflow}px`;
   story.style.marginTop = `${-viewportHeight}px`;
   scrollStops = getScrollStops({ introOverflow, introDistance, storyTop: story.offsetTop, viewportHeight });
+  if (tour) {
+    exploreScroll = { ...tour, start: getResizedScrollPosition(tour.start, previousStops, scrollStops) };
+  }
   story.style.height = `${scrollStops.at(-1).position - story.offsetTop + viewportHeight}px`;
   const paperStops = scrollStops.filter(stop => stop.chapter >= 0 && chapterStops[stop.chapter].copyChapter !== null);
   document.querySelectorAll('.scroll-anchor').forEach((anchor, index) => {
@@ -231,7 +236,8 @@ function handleStoryScroll() {
   const position = window.scrollY;
   const ownScroll = writtenScrollPosition !== null && Math.abs(position - writtenScrollPosition) < 2;
   writtenScrollPosition = null;
-  if (!ownScroll && exploreScroll && Math.abs(position - lastScrollY) > 2) resetScrollGesture();
+  // Browser chrome and asynchronous programmatic scrolls are not user cancellation.
+  // Input handlers cancel the tour before handling deliberate scrolling.
   if (!ownScroll && gesture && Math.abs(position - lastScrollY) > 0.1) {
     const result = getManualScroll(position, lastScrollY, gesture, scrollStops, viewport.offsetHeight);
     gesture = result.gesture;

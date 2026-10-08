@@ -66,6 +66,9 @@ canvas { width: 100%; height: 100%; display: block; }
 .efficient-input { position: absolute; top: calc(9% + 36px); width: 100%; margin: 0; text-align: center; font-size: 15px; }
 .story-copy { position: absolute; left: 14%; width: 40%; top: 50%; transform: translateY(-50%); text-align: center; pointer-events: none; }
 .closing-contact { position: absolute; inset: 0; z-index: 4; text-align: center; pointer-events: none; }
+.closing-morph { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
+.closing-morph[hidden], .closing-underline[hidden] { display: none; }
+.closing-underline { position: absolute; left: 50%; top: 50%; width: min(300px, 72%); height: 1px; transform: translate(-50%, -50%); background: rgba(232, 237, 226, 0.75); z-index: 3; pointer-events: none; }
 .closing-contact h2 { position: absolute; bottom: calc(50% + 20px); left: 5%; right: 5%; font-size: clamp(30px, 5vw, 54px); }
 .closing-contact .contact-details { position: absolute; top: calc(50% + 20px); left: 5%; right: 5%; margin: 0; font-size: 16px; }
 .closing-contact .profile-links { justify-content: center; margin-top: 18px; font-size: 13px; }

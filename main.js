@@ -23,6 +23,10 @@ const progressValue = document.querySelector('#progress-value');
 const scrollInstruction = document.querySelector('#scroll-instruction');
 const stopTour = document.querySelector('#stop-tour');
 const closingContact = document.querySelector('#connect');
+const closingCanvas = document.querySelector('#closing-morph');
+const closingContext = closingCanvas.getContext('2d');
+if (!closingContext) throw new Error('Unable to create the closing desk renderer.');
+const closingUnderline = document.querySelector('#closing-underline');
 const actionLabel = document.querySelector('#action-label');
 const vlmUi = document.querySelector('#vlm-ui');
 const vlmQuestion = document.querySelector('#vlm-question');
@@ -425,6 +429,9 @@ function render(now) {
   viewport.dataset.control = exploreScroll ? 'explore' : gesture?.held ? 'held' : userScrolling ? 'scroll' : 'idle';
   const state = timeline.closingProgress > 0 ? getClosingSceneState(timeline.closingProgress) : getSceneState(timeline.sceneProgress);
   const contactOpacity = state.closing?.contact ?? 0;
+  const closingFold = state.closing?.fold ?? 0;
+  closingCanvas.hidden = closingFold === 0 || closingFold === 1;
+  closingUnderline.hidden = closingFold !== 1;
   closingContact.hidden = contactOpacity === 0;
   closingContact.inert = contactOpacity === 0;
   closingContact.setAttribute('aria-hidden', String(contactOpacity === 0));
@@ -724,37 +731,23 @@ function drawClosingScene(state) {
     ctx.drawImage(closingSnapshot, 0, 0, width, height);
     ctx.restore();
   }
-  morphCanvas.hidden = fold === 0;
-  if (fold === 0) return;
+  if (fold === 0 || fold === 1) return;
   const scene = canvas.getBoundingClientRect();
   const bounds = viewport.getBoundingClientRect();
   const wires = getClosingDeskWires(state, width, height, desk,
-    [scene.left, scene.top - bounds.top], bounds.width, bounds.height);
-  morphContext.save();
-  morphContext.resetTransform();
-  morphContext.clearRect(0, 0, morphCanvas.width, morphCanvas.height);
-  morphContext.restore();
-  morphContext.save();
-  morphContext.translate(0, bounds.top);
-  if (fold === 1) {
-    const halfWidth = Math.min(150, bounds.width * 0.36);
-    morphContext.beginPath();
-    morphContext.moveTo(bounds.width / 2 - halfWidth, bounds.height / 2);
-    morphContext.lineTo(bounds.width / 2 + halfWidth, bounds.height / 2);
-    morphContext.strokeStyle = 'rgba(232,237,226,0.75)';
-    morphContext.lineWidth = 1;
-    morphContext.stroke();
-  } else {
-    for (const { a, b, strength } of wires) {
-      morphContext.beginPath();
-      morphContext.moveTo(...a);
-      morphContext.lineTo(...b);
-      morphContext.strokeStyle = `rgba(232,237,226,${strength})`;
-      morphContext.lineWidth = 0.9;
-      morphContext.stroke();
-    }
+    [scene.left - bounds.left, scene.top - bounds.top], bounds.width, bounds.height);
+  closingContext.save();
+  closingContext.resetTransform();
+  closingContext.clearRect(0, 0, closingCanvas.width, closingCanvas.height);
+  closingContext.restore();
+  for (const { a, b, strength } of wires) {
+    closingContext.beginPath();
+    closingContext.moveTo(...a);
+    closingContext.lineTo(...b);
+    closingContext.strokeStyle = `rgba(232,237,226,${strength})`;
+    closingContext.lineWidth = 0.9;
+    closingContext.stroke();
   }
-  morphContext.restore();
 }
 
 function drawScene(state, formation = 1) {
@@ -891,6 +884,10 @@ function resize() {
   canvas.width = Math.round(width * ratio);
   canvas.height = Math.round(height * ratio);
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  const closingBounds = viewport.getBoundingClientRect();
+  closingCanvas.width = Math.round(closingBounds.width * ratio);
+  closingCanvas.height = Math.round(closingBounds.height * ratio);
+  closingContext.setTransform(ratio, 0, 0, ratio, 0, 0);
   sampledFrames = [];
   closingSnapshot = null;
   morphPairs = null;

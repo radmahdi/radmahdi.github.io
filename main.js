@@ -1,5 +1,6 @@
 import { clamp, lerp, boxVertices, boxEdges, getSceneState, getIntroSceneState, getActionSceneState, getRecoveryGeometry, fallingEdge, createRubberDuck, getHandJoints, handBones, roomVertices, roomDetails, getRoomLayout, createDeskScene, getSceneProjection, vlmFrameSamples, vlmTokenCount, vlmQuestionText, vlmAnswerText, vlmQuestionWords, getVlmToken, getVlmTokenPosition, efficientTokenCount, getEfficientTokenPosition, standardTokenBudget, efficientTokenBudget, tokensPerSquare, getTokenBudgetRow } from './geometry.js';
 import { smoothstep, getLampGeometry, getLampPullHand, getHandForearm, createProjector, createObjectTransform, getSceneWires, groupSceneWires, clipSceneWires, matchMorphPaths, interpolateMorphPath, getEfficientTrajectory, chapterStops, getScrollStops, getScrollTime, getScrollPosition, getScrollState, getVisibleFrameIndices, getManualScroll, getExploreScroll, getResizedScrollPosition } from './geometry.js';
+import { closingChapter, getClosingSceneState, getClosingDeskWires } from './geometry.js';
 
 const canvas = document.querySelector('#scene');
 const ctx = canvas.getContext('2d');
@@ -21,6 +22,7 @@ const progressBar = document.querySelector('#progress-bar');
 const progressValue = document.querySelector('#progress-value');
 const scrollInstruction = document.querySelector('#scroll-instruction');
 const stopTour = document.querySelector('#stop-tour');
+const closingContact = document.querySelector('#connect');
 const actionLabel = document.querySelector('#action-label');
 const vlmUi = document.querySelector('#vlm-ui');
 const vlmQuestion = document.querySelector('#vlm-question');
@@ -40,6 +42,7 @@ let height = 0;
 let activeChapter = -1;
 let framePending = false;
 let sampledFrames = [];
+let closingSnapshot = null;
 let introOverflow = 0;
 let introDistance = 1;
 let portraitBounds = { left: 0, top: 0, width: 0 };
@@ -420,7 +423,12 @@ function render(now) {
   viewport.dataset.playing = String(exploreScroll !== null);
   viewport.setAttribute('aria-busy', 'false');
   viewport.dataset.control = exploreScroll ? 'explore' : gesture?.held ? 'held' : userScrolling ? 'scroll' : 'idle';
-  const state = getSceneState(timeline.sceneProgress);
+  const state = timeline.closingProgress > 0 ? getClosingSceneState(timeline.closingProgress) : getSceneState(timeline.sceneProgress);
+  const contactOpacity = state.closing?.contact ?? 0;
+  closingContact.hidden = contactOpacity === 0;
+  closingContact.inert = contactOpacity === 0;
+  closingContact.setAttribute('aria-hidden', String(contactOpacity === 0));
+  closingContact.style.opacity = contactOpacity;
   const chapter = Math.max(0, timeline.chapter);
   const { copy } = timeline;
   chapters.forEach(element => {
@@ -442,12 +450,14 @@ function render(now) {
   }
   progressBar.style.transform = `scaleX(${timeline.sceneProgress})`;
   progressValue.textContent = String(Math.round(timeline.sceneProgress * 100)).padStart(2, '0');
-  scrollInstruction.textContent = gesture?.held ? 'SCROLL AGAIN TO CONTINUE' : 'SCROLL TO CONTINUE';
+  scrollInstruction.textContent = contactOpacity === 1 ? 'LET’S CONNECT'
+    : gesture?.held ? 'SCROLL AGAIN TO CONTINUE' : 'SCROLL TO CONTINUE';
   if (actionLabel.textContent !== state.actionLabel) {
     actionLabel.hidden = !state.actionLabel;
     actionLabel.textContent = state.actionLabel;
   }
-  vlmUi.hidden = !state.vlm;
+  vlmUi.hidden = !state.vlm || state.closing?.uiOpacity === 0;
+  vlmUi.style.opacity = state.closing?.uiOpacity ?? 1;
   vlmUi.classList.toggle('is-efficient', !!state.efficient);
   if (state.vlm) {
     const { vlm } = state;
@@ -471,9 +481,10 @@ function render(now) {
     vlmAnswer.hidden = answer.length === 0;
     vlmAnswer.style.setProperty('--reveal', vlm.answer);
     vlmAnswer.classList.toggle('is-typing', vlm.answer > 0 && vlm.answer < 1);
-    const announcement = vlm.answer === 1 ? vlmAnswerText : '';
+    const announcement = vlm.answer === 1 && !state.closing ? vlmAnswerText : '';
     if (answerStatus.textContent !== announcement) answerStatus.textContent = announcement;
-    drawVlm(state);
+    if (state.closing) drawClosingScene(state);
+    else drawVlm(state);
   } else {
     answerStatus.textContent = '';
     drawScene(state, introState.morph);
@@ -695,6 +706,57 @@ function drawLampPullHand(state) {
   drawHand({ ...hand, opacity: 1 }, project, hand.scale);
 }
 
+function drawClosingScene(state) {
+  const { uiOpacity, fold } = state.closing;
+  if (uiOpacity > 0 && !closingSnapshot) {
+    drawVlm(getSceneState(1));
+    closingSnapshot = document.createElement('canvas');
+    closingSnapshot.width = canvas.width;
+    closingSnapshot.height = canvas.height;
+    const snapshotContext = closingSnapshot.getContext('2d');
+    if (!snapshotContext) throw new Error('Unable to create the closing scene snapshot.');
+    snapshotContext.drawImage(canvas, 0, 0);
+  }
+  drawScene(state);
+  if (uiOpacity > 0) {
+    ctx.save();
+    ctx.globalAlpha = uiOpacity;
+    ctx.drawImage(closingSnapshot, 0, 0, width, height);
+    ctx.restore();
+  }
+  morphCanvas.hidden = fold === 0;
+  if (fold === 0) return;
+  const scene = canvas.getBoundingClientRect();
+  const bounds = viewport.getBoundingClientRect();
+  const wires = getClosingDeskWires(state, width, height, desk,
+    [scene.left, scene.top - bounds.top], bounds.width, bounds.height);
+  morphContext.save();
+  morphContext.resetTransform();
+  morphContext.clearRect(0, 0, morphCanvas.width, morphCanvas.height);
+  morphContext.restore();
+  morphContext.save();
+  morphContext.translate(0, bounds.top);
+  if (fold === 1) {
+    const halfWidth = Math.min(150, bounds.width * 0.36);
+    morphContext.beginPath();
+    morphContext.moveTo(bounds.width / 2 - halfWidth, bounds.height / 2);
+    morphContext.lineTo(bounds.width / 2 + halfWidth, bounds.height / 2);
+    morphContext.strokeStyle = 'rgba(232,237,226,0.75)';
+    morphContext.lineWidth = 1;
+    morphContext.stroke();
+  } else {
+    for (const { a, b, strength } of wires) {
+      morphContext.beginPath();
+      morphContext.moveTo(...a);
+      morphContext.lineTo(...b);
+      morphContext.strokeStyle = `rgba(232,237,226,${strength})`;
+      morphContext.lineWidth = 0.9;
+      morphContext.stroke();
+    }
+  }
+  morphContext.restore();
+}
+
 function drawScene(state, formation = 1) {
   const { light, collapse, recovery } = state;
   const { scale, cx, cy, project } = getSceneProjection(state, width, height);
@@ -717,7 +779,7 @@ function drawScene(state, formation = 1) {
   const illumination = smoothstep(0.96, 1, formation);
   const origin = project([0, -1.59, 0]);
   const shadow = ctx.createRadialGradient(...origin, 0, ...origin, scale * 1.8 * illumination);
-  shadow.addColorStop(0, 'rgba(198, 208, 184, 0.035)');
+  shadow.addColorStop(0, `rgba(198, 208, 184, ${0.035 * (1 - (state.closing?.fold ?? 0))})`);
   shadow.addColorStop(1, 'rgba(198, 208, 184, 0)');
   ctx.fillStyle = shadow;
   ctx.fillRect(0, 0, width, height);
@@ -727,8 +789,9 @@ function drawScene(state, formation = 1) {
     drawRoom(state, project);
     ctx.restore();
   }
-  if (state.desk > 0) {
-    desk.forEach(({ a, b, strength }) => stroke(project(a), project(b), strength * state.desk, 0.9));
+  if (state.desk > 0 && !(state.closing?.fold > 0)) {
+    desk.forEach(({ a, b, strength, kind }) => stroke(project(a), project(b),
+      strength * state.desk * (kind === 'prop' ? state.closing?.propsOpacity ?? 1 : 1), 0.9));
   }
 
   if (state.lampOpacity > 0) {
@@ -829,6 +892,7 @@ function resize() {
   canvas.height = Math.round(height * ratio);
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   sampledFrames = [];
+  closingSnapshot = null;
   morphPairs = null;
   requestRender();
 }
@@ -846,6 +910,8 @@ function restoreLocation(event) {
     writeScroll(0);
   } else if (location.hash === '#research') {
     goToChapter(1);
+  } else if (location.hash === '#connect') {
+    goToChapter(closingChapter);
   } else {
     const anchor = document.getElementById(location.hash.slice(1));
     if (anchor?.classList.contains('scroll-anchor')) {

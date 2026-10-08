@@ -447,7 +447,52 @@ export function getSceneState(progress) {
   };
 }
 
+export function getClosingSceneState(progress) {
+  const p = clamp(progress);
+  const base = getSceneState(1);
+  const approach = smoothstep(0.12, 0.26, p);
+  const lift = smoothstep(0.32, 0.43, p);
+  const carry = smoothstep(0.43, 0.65, p);
+  const fold = smoothstep(0.72, 0.93, p);
+  return {
+    ...base,
+    chapter: closingChapter,
+    phase: 'closing',
+    handOpacity: p < 0.65 ? smoothstep(0.12, 0.18, p) : 0,
+    handOffset: [8 * (1 - approach), 1.2 * (1 - approach), 0],
+    grip: smoothstep(0.26, 0.32, p),
+    objectTranslation: base.objectTranslation.map((value, axis) =>
+      value + [40 * carry, 1.6 * lift + carry, 0][axis]),
+    duckOpacity: p < 0.65 ? base.duckOpacity : 0,
+    closing: {
+      progress: p,
+      uiOpacity: 1 - smoothstep(0, 0.12, p),
+      propsOpacity: 1 - smoothstep(0.65, 0.72, p),
+      fold,
+      contact: smoothstep(0.93, 1, p),
+    },
+  };
+}
+
+export function getClosingDeskWires(state, width, height, desk, offset, viewportWidth, viewportHeight) {
+  const { project } = getSceneProjection(state, width, height);
+  const edges = desk.filter(edge => edge.kind === 'desk').map(({ a, b, strength }) => ({
+    a: project(a).map((value, axis) => value + offset[axis]),
+    b: project(b).map((value, axis) => value + offset[axis]),
+    strength,
+  }));
+  const xs = edges.flatMap(({ a, b }) => [a[0], b[0]]);
+  const left = Math.min(...xs), right = Math.max(...xs);
+  const halfWidth = Math.min(150, viewportWidth * 0.36);
+  const fold = point => [
+    lerp(point[0], viewportWidth / 2 - halfWidth + (point[0] - left) / (right - left) * halfWidth * 2, state.closing.fold),
+    lerp(point[1], viewportHeight / 2, state.closing.fold),
+  ];
+  return edges.map(({ a, b, strength }) => ({ a: fold(a), b: fold(b), strength }));
+}
+
 const spatialDuration = 0.8 * 0.82 * 0.83;
+export const closingChapter = 9;
 export const chapterStops = [
   { copyChapter: null, sceneProgress: 0, duration: 1800 },
   { copyChapter: 0, sceneProgress: 0.34 * 0.55 * spatialDuration, duration: 1800 },
@@ -458,6 +503,7 @@ export const chapterStops = [
   { copyChapter: 6, sceneProgress: 0.998 * 0.82 * 0.83, duration: 3600 },
   { copyChapter: 7, sceneProgress: (0.82 + 0.18 * 0.999) * 0.83, duration: 8000, scrollViewports: 2.5 },
   { copyChapter: 8, sceneProgress: 1, duration: 7000, scrollViewports: 2.5 },
+  { copyChapter: null, sceneProgress: 1, closingProgress: 1, duration: 8000, scrollViewports: 2 },
 ];
 
 export const photoChapter = -2;
@@ -468,14 +514,15 @@ const openingStops = [
 ];
 
 function getPlaybackStop(index) {
-  return index < 0 ? openingStops[index - photoChapter] : { ...chapterStops[index], introProgress: 1 };
+  return { closingProgress: 0, ...(index < 0 ? openingStops[index - photoChapter] : { ...chapterStops[index], introProgress: 1 }) };
 }
 
 function getPlaybackTiming(fromIndex, toIndex) {
   const from = getPlaybackStop(fromIndex), to = getPlaybackStop(toIndex);
   const introDuration = from.introProgress === to.introProgress ? 0
     : Math.min(fromIndex, toIndex) === photoChapter ? 2200 : 2400;
-  const sceneDuration = from.sceneProgress === to.sceneProgress ? 0 : chapterStops[Math.max(fromIndex, toIndex)].duration;
+  const sceneDuration = from.sceneProgress === to.sceneProgress && from.closingProgress === to.closingProgress
+    ? 0 : chapterStops[Math.max(fromIndex, toIndex)].duration;
   const fadeOut = from.copyChapter === null ? 0 : 180;
   const finish = fadeOut + introDuration + sceneDuration;
   const fadeIn = to.copyChapter === null ? 0 : 250;
@@ -490,6 +537,7 @@ export function getChapterPlayback(fromIndex, toIndex, elapsed, reducedMotion = 
     return {
       introProgress: to.introProgress,
       sceneProgress: to.sceneProgress,
+      closingProgress: to.closingProgress,
       copy: { chapter: to.copyChapter, opacity: to.copyChapter === null ? 0 : 1 },
       playing: false,
     };
@@ -502,6 +550,7 @@ export function getChapterPlayback(fromIndex, toIndex, elapsed, reducedMotion = 
       return {
         introProgress: from.introProgress,
         sceneProgress: from.sceneProgress,
+        closingProgress: from.closingProgress,
         copy: { chapter: from.copyChapter, opacity: 1 - smoothstep(readingEnd, fadeEnd, elapsed) },
         playing: true,
       };
@@ -519,12 +568,13 @@ export function getChapterPlayback(fromIndex, toIndex, elapsed, reducedMotion = 
         : lerp(0.54, 0.755, smoothstep(0.65, 1, amount));
     sceneProgress = pose * 0.55 * spatialDuration;
   }
-  const copyOpacity = toIndex === chapterStops.length - 1
+  const copyOpacity = toIndex === 8
     ? smoothstep(0.95, 0.97, sceneProgress)
     : smoothstep(finish, finish + 250, elapsed);
   return {
     introProgress: introDuration ? lerp(from.introProgress, to.introProgress, smoothstep(introStart, introStart + introDuration, elapsed)) : to.introProgress,
     sceneProgress,
+    closingProgress: lerp(from.closingProgress, to.closingProgress, sceneAmount),
     copy: { chapter: to.copyChapter, opacity: to.copyChapter === null ? 0 : copyOpacity },
     playing: true,
   };
@@ -572,6 +622,7 @@ const exploreTour = [
   { chapter: 6, end: 27000 },
   { chapter: 7, end: 36000 },
   { chapter: 8, end: 45000 },
+  { chapter: closingChapter, end: 53000 },
 ];
 
 export function getExploreScroll(start, stops, elapsed) {
@@ -720,7 +771,8 @@ export const deskBounds = { min: [-4, 0.35, -3.25], max: [4, 0.5, -1.05] };
 
 export function createDeskScene() {
   const segments = [];
-  const line = (a, b, strength = 0.55) => segments.push({ a, b, strength });
+  let kind = 'desk';
+  const line = (a, b, strength = 0.55) => segments.push({ a, b, strength, kind });
   const cuboid = (min, max, strength) => {
     const vertices = boxVertices.map(point => point.map((value, axis) => value < 0 ? min[axis] : max[axis]));
     boxEdges.forEach(([a, b]) => line(vertices[a], vertices[b], strength));
@@ -730,6 +782,7 @@ export function createDeskScene() {
     for (const z of [-3, -1.3]) cuboid([x - 0.08, -1.6, z - 0.08], [x + 0.08, 0.35, z + 0.08], 0.45);
   }
   // A small stack of books and a handled mug leave the middle of the desk free.
+  kind = 'prop';
   cuboid([-3.8, 0.5, -2.8], [-2.7, 0.67, -1.5], 0.65);
   cuboid([-3.65, 0.68, -2.85], [-2.65, 0.83, -1.65], 0.55);
   for (const y of [0.55, 0.6, 0.73, 0.78]) line([-3.65, y, -1.5], [-2.75, y, -1.5], 0.25);

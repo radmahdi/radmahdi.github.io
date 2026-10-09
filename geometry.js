@@ -626,6 +626,8 @@ const exploreTour = [
 ];
 
 export function getExploreScroll(start, stops, elapsed) {
+  // Stretch the whole schedule, including reading pauses, to 70 seconds.
+  elapsed = elapsed / 70000 * exploreTour.at(-1).end;
   let from = start;
   let began = 0;
   for (const leg of exploreTour) {

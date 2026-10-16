@@ -39,6 +39,8 @@ const standardLabel = document.querySelector('#standard-token-label');
 const efficientLabel = document.querySelector('#efficient-token-label');
 const efficientInput = document.querySelector('#efficient-input');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const magnetPointer = matchMedia('(min-width: 701px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)');
+const exploreLink = document.querySelector('.explore-link');
 const duck = createRubberDuck();
 const desk = createDeskScene();
 let width = 0;
@@ -61,6 +63,43 @@ let writtenScrollPosition = null;
 let gesture = null;
 let layoutSize = '';
 let exploreScroll = null;
+
+function resetExploreMagnet() {
+  exploreLink.style.removeProperty('--magnet-x');
+  exploreLink.style.removeProperty('--magnet-y');
+}
+
+window.addEventListener('pointermove', event => {
+  if (!magnetPointer.matches || event.pointerType !== 'mouse' || event.buttons
+    || introCopy.inert || exploreScroll || exploreLink.matches(':focus-visible')) {
+    resetExploreMagnet();
+    return;
+  }
+  // Measure the stationary link, not its moving contents, to avoid hover feedback.
+  const bounds = exploreLink.getBoundingClientRect();
+  const dx = event.clientX - (bounds.left + bounds.width / 2);
+  const dy = event.clientY - (bounds.top + bounds.height / 2);
+  const distance = Math.hypot(Math.max(0, Math.abs(dx) - bounds.width / 2),
+    Math.max(0, Math.abs(dy) - bounds.height / 2));
+  if (distance >= 60) {
+    resetExploreMagnet();
+    return;
+  }
+  const strength = 1 - smoothstep(0, 60, distance);
+  const x = dx / (bounds.width / 2 + 60);
+  const y = dy / (bounds.height / 2 + 60);
+  const scale = 8 * strength / Math.max(1, Math.hypot(x, y));
+  exploreLink.style.setProperty('--magnet-x', `${x * scale}px`);
+  exploreLink.style.setProperty('--magnet-y', `${y * scale}px`);
+}, { passive: true });
+document.documentElement.addEventListener('pointerleave', resetExploreMagnet);
+window.addEventListener('pointerdown', resetExploreMagnet, { passive: true });
+window.addEventListener('scroll', resetExploreMagnet, { passive: true });
+window.addEventListener('resize', resetExploreMagnet);
+window.addEventListener('blur', resetExploreMagnet);
+document.addEventListener('visibilitychange', resetExploreMagnet);
+document.addEventListener('focusin', resetExploreMagnet);
+magnetPointer.addEventListener('change', resetExploreMagnet);
 
 function samplePortraitPaths() {
   const paths = [];

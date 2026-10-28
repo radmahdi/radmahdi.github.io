@@ -39,6 +39,8 @@ const standardLabel = document.querySelector('#standard-token-label');
 const efficientLabel = document.querySelector('#efficient-token-label');
 const efficientInput = document.querySelector('#efficient-input');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const themeToggle = document.querySelector('#theme-toggle');
+const isLightTheme = () => document.documentElement.dataset.theme === 'light';
 const magnetPointer = matchMedia('(min-width: 701px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)');
 const exploreLink = document.querySelector('.explore-link');
 const duck = createRubberDuck();
@@ -63,6 +65,27 @@ let writtenScrollPosition = null;
 let gesture = null;
 let layoutSize = '';
 let exploreScroll = null;
+
+function updateThemeControl() {
+  const light = isLightTheme();
+  themeToggle.setAttribute('aria-pressed', String(light));
+  themeToggle.title = light ? 'Switch to dark mode' : 'Switch to light mode';
+  document.querySelector('meta[name="theme-color"]').content = light ? '#f7f6f6' : '#080909';
+}
+themeToggle.hidden = false;
+updateThemeControl();
+themeToggle.addEventListener('click', () => {
+  const theme = isLightTheme() ? 'dark' : 'light';
+  document.documentElement.dataset.theme = theme;
+  updateThemeControl();
+  morphPairs = null;
+  requestRender();
+  try {
+    localStorage.setItem('portfolio-theme', theme);
+  } catch (error) {
+    console.warn('Unable to save the theme preference.', error);
+  }
+});
 
 function resetExploreMagnet() {
   exploreLink.style.removeProperty('--magnet-x');
@@ -133,13 +156,15 @@ function createMorphPairs() {
   const viewportTop = viewport.getBoundingClientRect().top;
   const target = clipSceneWires(getSceneWires(getSceneState(0), width, height, duck), width, height).map(line => ({
     ...line,
+    color: isLightTheme() ? line.color.map(value => 255 - value) : line.color,
     a: [line.a[0] + scene.left, line.a[1] + scene.top - viewportTop],
     b: [line.b[0] + scene.left, line.b[1] + scene.top - viewportTop],
   }));
   const scale = portraitBounds.width / 800;
   const project = point => [portraitBounds.left + point[0] * scale, portraitBounds.top + point[1] * scale];
   const source = portraitPaths.map(points => ({
-    points: points.map(project), alpha: 1, lineWidth: 2.4 * scale, color: [239, 239, 235],
+    points: points.map(project), alpha: 1, lineWidth: 2.4 * scale,
+    color: isLightTheme() ? [16, 16, 20] : [239, 239, 235],
   }));
   return matchMorphPaths(source, groupSceneWires(target));
 }
@@ -328,7 +353,9 @@ document.querySelectorAll('a[href="#top"], .skip-link').forEach(link => {
     document.querySelector(end ? '#story-end' : '.wordmark').focus({ preventScroll: true });
   });
 });
-document.addEventListener('focusin', resetScrollGesture);
+document.addEventListener('focusin', event => {
+  if (!themeToggle.contains(event.target)) resetScrollGesture();
+});
 stopTour.addEventListener('click', resetScrollGesture);
 
 window.addEventListener('wheel', event => {
@@ -337,6 +364,7 @@ window.addEventListener('wheel', event => {
 }, { passive: true });
 
 window.addEventListener('pointerdown', event => {
+  if (themeToggle.contains(event.target)) return;
   pointerDown = true;
   beginUserScroll(event, true);
 }, { passive: true });
@@ -347,6 +375,7 @@ function releasePointer() {
 window.addEventListener('pointerup', releasePointer, { passive: true });
 window.addEventListener('pointercancel', releasePointer, { passive: true });
 window.addEventListener('touchstart', event => {
+  if (themeToggle.contains(event.target)) return;
   touching = true;
   beginUserScroll(event, true);
 }, { passive: true });
@@ -358,6 +387,7 @@ function releaseTouch(event) {
 window.addEventListener('touchend', releaseTouch, { passive: true });
 window.addEventListener('touchcancel', releaseTouch, { passive: true });
 window.addEventListener('keydown', event => {
+  if (themeToggle.contains(event.target) && [' ', 'Enter'].includes(event.key)) return;
   if (['Escape', 'Tab', 'Home', 'End', 'ArrowDown', 'PageDown', ' ', 'ArrowUp', 'PageUp'].includes(event.key)) {
     exploreScroll = null;
     requestRender();

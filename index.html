@@ -6,6 +6,16 @@
     <meta name="theme-color" content="#080909">
     <meta name="description" content="Mahdi Rad, principal scientist at Microsoft Spatial AI Lab in Zurich. Research in 3D computer vision, spatial vision-language models, and efficient video understanding.">
     <title>Mahdi Rad | Multimodal &amp; Spatial AI</title>
+    <script>
+      try {
+        if (localStorage.getItem('portfolio-theme') === 'light') {
+          document.documentElement.dataset.theme = 'light';
+          document.querySelector('meta[name="theme-color"]').content = '#f7f6f6';
+        }
+      } catch (error) {
+        console.warn('Unable to restore the saved theme.', error);
+      }
+    </script>
     <link rel="stylesheet" href="./styles.css">
     <script type="module" src="./main.js"></script>
   </head>
@@ -16,6 +26,10 @@
       <nav aria-label="Main navigation">
         <a href="#research" data-jump="0">Work <span>07</span></a>
         <a href="#contact">Contact <span aria-hidden="true">↗</span></a>
+        <button id="theme-toggle" type="button" aria-label="Light mode" aria-pressed="false" title="Switch to light mode" hidden>
+          <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+          <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4a8.5 8.5 0 1 0 11.5 11.5Z"/></svg>
+        </button>
       </nav>
     </header>
 

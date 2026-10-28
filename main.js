@@ -7,6 +7,7 @@ const ctx = canvas.getContext('2d');
 if (!ctx) throw new Error('This browser does not support the Canvas 2D renderer.');
 const story = document.querySelector('.scroll-story');
 const viewport = document.querySelector('.story-viewport');
+const storyCopy = document.querySelector('.story-copy');
 const introTrack = document.querySelector('.intro-track');
 const intro = document.querySelector('.intro-section');
 const introCopy = document.querySelector('.intro-copy');
@@ -218,7 +219,7 @@ function layoutIntro() {
   portraitBounds = { left: picture.left, top: picture.top - section.top - introOverflow, width: picture.width };
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
   morphCanvas.width = Math.round(document.documentElement.clientWidth * ratio);
-  morphCanvas.height = Math.round(window.innerHeight * ratio);
+  morphCanvas.height = Math.round(viewportHeight * ratio);
   morphContext.setTransform(ratio, 0, 0, ratio, 0, 0);
   morphPairs = null;
   if (preservePosition) writeScroll(getScrollPosition(time, scrollStops));
@@ -516,6 +517,24 @@ function render(now) {
     element.style.opacity = active ? copy.opacity : '';
     element.style.visibility = active && !visible ? 'hidden' : '';
   });
+  const heavyCopy = chapters.find(element =>
+    Number(element.dataset.chapter) === copy.chapter && element.classList.contains('publication-heavy'));
+  const paperReveal = heavyCopy ? copy.opacity : 0;
+  viewport.style.setProperty('--paper-reveal', paperReveal);
+  if (document.documentElement.clientWidth <= 700) {
+    const viewportHeight = viewport.offsetHeight;
+    const baseTop = viewportHeight * 0.46;
+    const baseHeight = viewportHeight * 0.54 - 90;
+    const paperTop = heavyCopy ? 28 + storyCopy.getBoundingClientRect().height : baseTop;
+    const paperHeight = Math.max(0, Math.min(baseHeight, viewportHeight - 90 - paperTop));
+    viewport.style.setProperty('--paper-scene-top', `${lerp(baseTop, paperTop, paperReveal)}px`);
+    viewport.style.setProperty('--paper-scene-height', `${lerp(baseHeight, paperHeight, paperReveal)}px`);
+  } else {
+    viewport.style.removeProperty('--paper-scene-top');
+    viewport.style.removeProperty('--paper-scene-height');
+  }
+  // Layout and projection must use the same dimensions in this frame, not the next ResizeObserver callback.
+  resize();
   if (chapter !== activeChapter) {
     activeChapter = chapter;
     chapterButtons.forEach((button, index) => {
@@ -947,13 +966,17 @@ function requestRender() {
 
 function resize() {
   const bounds = canvas.getBoundingClientRect();
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const closingBounds = viewport.getBoundingClientRect();
+  if (width === bounds.width && height === bounds.height
+    && canvas.width === Math.round(bounds.width * ratio) && canvas.height === Math.round(bounds.height * ratio)
+    && closingCanvas.width === Math.round(closingBounds.width * ratio)
+    && closingCanvas.height === Math.round(closingBounds.height * ratio)) return;
   width = bounds.width;
   height = bounds.height;
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(width * ratio);
   canvas.height = Math.round(height * ratio);
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  const closingBounds = viewport.getBoundingClientRect();
   closingCanvas.width = Math.round(closingBounds.width * ratio);
   closingCanvas.height = Math.round(closingBounds.height * ratio);
   closingContext.setTransform(ratio, 0, 0, ratio, 0, 0);

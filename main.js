@@ -67,25 +67,9 @@ let gesture = null;
 let layoutSize = '';
 let exploreScroll = null;
 
-function updateThemeControl() {
-  const light = isLightTheme();
-  themeToggle.setAttribute('aria-pressed', String(light));
-  themeToggle.title = light ? 'Switch to dark mode' : 'Switch to light mode';
-  document.querySelector('meta[name="theme-color"]').content = light ? '#f7f6f6' : '#080909';
-}
-themeToggle.hidden = false;
-updateThemeControl();
-themeToggle.addEventListener('click', () => {
-  const theme = isLightTheme() ? 'dark' : 'light';
-  document.documentElement.dataset.theme = theme;
-  updateThemeControl();
+document.addEventListener('themechange', () => {
   morphPairs = null;
   requestRender();
-  try {
-    localStorage.setItem('portfolio-theme', theme);
-  } catch (error) {
-    console.warn('Unable to save the theme preference.', error);
-  }
 });
 
 function resetExploreMagnet() {

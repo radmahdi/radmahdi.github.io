@@ -306,12 +306,44 @@ footer > span { font-size: 8px; color: #6d7762; }
 .publication-list a:hover, .publication-list a:focus-visible { background: color-mix(in srgb, var(--white) 5%, var(--bg)); text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 4px; }
 .publication-story-link { display: inline-block; font-size: 11px; margin-top: 20px; margin-left: 50px; color: var(--muted); }
 .publication-story-link:hover, .publication-story-link:focus-visible { color: var(--white); }
+.publication-group:has(.publication-sketch) { position: relative; }
+.publication-group:has(.publication-sketch) h2 { min-height: 36px; padding-right: 160px; }
+.publication-group:has(.publication-sketch) .publication-caption { min-height: 42px; padding-right: 160px; }
+.publication-sketch { position: absolute; right: 4px; top: -12px; width: 140px; height: 98px; color: var(--white); pointer-events: none; overflow: visible; }
+.publication-sketch path { fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+.publication-sketch path:nth-child(2) { opacity: .35; }
+.publication-sketch path:nth-child(3) { opacity: .65; }
+@media (prefers-reduced-motion: no-preference) {
+  .publication-sketch.sketch-revealed path { animation: publication-draw 1.6s cubic-bezier(.22, .61, .36, 1) var(--stroke-delay) both; }
+  .publication-list a, .publication-list a::after { transition: background .25s, border-color .25s, transform .25s; }
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .publication-sketch { transition: transform .6s cubic-bezier(.22, .61, .36, 1), filter .6s; }
+  .publication-group:hover .publication-sketch { transform: translateY(-4px) rotate(-3deg); filter: drop-shadow(0 0 8px color-mix(in srgb, var(--white) 22%, transparent)); }
+  .publication-group:hover .publication-sketch.sketch-revealed path { animation-name: publication-redraw; }
+  .publication-list a:hover::after { transform: translateX(3px) rotate(45deg); border-color: var(--white); }
+}
+.publication-list a:hover, .publication-list a:focus-visible {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--white) 9%, var(--bg)), transparent);
+  box-shadow: inset 2px 0 var(--white);
+}
+@keyframes publication-draw {
+  from { stroke-dasharray: 1; stroke-dashoffset: 1; }
+  to { stroke-dasharray: 1; stroke-dashoffset: 0; }
+}
+@keyframes publication-redraw {
+  from { stroke-dasharray: 1; stroke-dashoffset: 1; }
+  to { stroke-dasharray: 1; stroke-dashoffset: 0; }
+}
 @media (max-width: 700px) {
   .publications-main { padding: 44px 6% 64px; }
   .publication-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .publication-list a { font-size: 14px; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; padding-left: 0; padding-right: 24px; }
   .publication-list a::after { right: 5px; }
   .publication-story-link { margin-left: 30px; }
+  .publication-sketch { width: 88px; height: 62px; top: 0; right: 0; }
+  .publication-group:has(.publication-sketch) h2 { min-height: 62px; padding-right: 100px; }
+  .publication-group:has(.publication-sketch) .publication-caption { padding-right: 0; margin-top: 16px; }
 }
 @media (max-width: 480px) {
   .site-header { height: 116px; flex-wrap: wrap; align-content: center; gap: 4px; }

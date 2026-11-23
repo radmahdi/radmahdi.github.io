@@ -324,8 +324,7 @@ document.querySelector('a[href="#contact"]').addEventListener('click', event => 
 document.querySelectorAll('[data-jump]').forEach(link => {
   link.addEventListener('click', event => {
     event.preventDefault();
-    if (link.classList.contains('explore-link')) exploreWork();
-    else goToChapter(1);
+    exploreWork();
   });
 });
 chapterButtons.forEach((button, index) => button.addEventListener('click', () => goToChapter(index)));
@@ -981,6 +980,9 @@ function restoreLocation(event) {
     scrollToContact();
   } else if (location.hash === '#top' || (event.type === 'hashchange' && !location.hash)) {
     writeScroll(0);
+  } else if (location.hash === '#explore') {
+    writeScroll(0);
+    exploreWork();
   } else if (location.hash === '#research') {
     goToChapter(1);
   } else if (location.hash === '#connect') {
